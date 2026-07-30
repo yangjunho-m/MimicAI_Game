@@ -4,7 +4,7 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 export type AiProvider = "openai" | "gemini" | "cloudflare";
 
 const providers: AiProvider[] = ["openai", "gemini", "cloudflare"];
-const providerInk = ["#171717", "#168c73", "#f4a900"];
+const providerInk = ["#171717", "#168c73", "#171717"];
 
 async function forceSinglePenStyle(source: string, aiIndex: number) {
   const image = await new Promise<HTMLImageElement>((resolve, reject) => {
@@ -42,25 +42,71 @@ async function forceSinglePenStyle(source: string, aiIndex: number) {
   outputContext.fillRect(0, 0, output.width, output.height);
   outputContext.fillStyle = providerInk[aiIndex % providerInk.length];
   const isCloudflare = aiIndex % providers.length === 2;
-  const samplingStep = isCloudflare ? 4 : 2;
-  const contrastLimit = isCloudflare ? 72 : 54;
+
+  if (isCloudflare) {
+    const candidates: Array<{ x: number; y: number; used: boolean }> = [];
+    for (let y = 3; y < height - 3; y += 3) {
+      for (let x = 3; x < width - 3; x += 3) {
+        const center = y * width + x;
+        const contrast = Math.abs(gray[center + 1] - gray[center - 1])
+          + Math.abs(gray[center + width] - gray[center - width]);
+        if (contrast > 64 && gray[center] < 248) candidates.push({ x, y, used: false });
+      }
+    }
+
+    const strokeCount = Math.min(15, Math.max(5, 5 + (candidates.length % 11)));
+    outputContext.strokeStyle = "#171717";
+    outputContext.lineWidth = 5;
+    outputContext.lineCap = "round";
+    outputContext.lineJoin = "round";
+
+    for (let stroke = 0; stroke < strokeCount && candidates.length; stroke += 1) {
+      let current = candidates[(stroke * 977 + candidates.length * 13) % candidates.length];
+      let attempts = 0;
+      while (current.used && attempts < candidates.length) {
+        current = candidates[(stroke * 977 + attempts * 37) % candidates.length];
+        attempts += 1;
+      }
+      if (current.used) break;
+
+      outputContext.beginPath();
+      const startX = (current.x / width) * output.width;
+      const startY = (current.y / height) * output.height;
+      outputContext.moveTo(startX - 7 + (stroke % 4), startY + 5 - (stroke % 3));
+
+      for (let point = 0; point < 65; point += 1) {
+        current.used = true;
+        const near = candidates
+          .filter(candidate => !candidate.used && Math.abs(candidate.x - current.x) < 22 && Math.abs(candidate.y - current.y) < 22)
+          .sort((a, b) => {
+            const distanceA = (a.x - current.x) ** 2 + (a.y - current.y) ** 2;
+            const distanceB = (b.x - current.x) ** 2 + (b.y - current.y) ** 2;
+            return distanceA - distanceB;
+          })[0];
+        if (!near) break;
+        current = near;
+        const wobbleX = Math.sin(point * 1.71 + stroke * 2.3) * 6;
+        const wobbleY = Math.cos(point * 1.37 + stroke * 1.9) * 5;
+        outputContext.lineTo(
+          (current.x / width) * output.width + wobbleX,
+          (current.y / height) * output.height + wobbleY
+        );
+      }
+      outputContext.stroke();
+    }
+    return output.toDataURL("image/png");
+  }
 
   // Convert every provider's raster output into one uneven, single-color pen.
-  for (let y = 3; y < height - 3; y += samplingStep) {
-    for (let x = 3; x < width - 3; x += samplingStep) {
-      const warpedX = isCloudflare
-        ? Math.max(2, Math.min(width - 3, Math.round(x + Math.sin(y * 0.055) * 7 + Math.sin(y * 0.013) * 5)))
-        : x;
-      const warpedY = isCloudflare
-        ? Math.max(2, Math.min(height - 3, Math.round(y + Math.sin(x * 0.047) * 5)))
-        : y;
-      const center = warpedY * width + warpedX;
+  for (let y = 3; y < height - 3; y += 2) {
+    for (let x = 3; x < width - 3; x += 2) {
+      const center = y * width + x;
       const horizontal = Math.abs(gray[center + 1] - gray[center - 1]);
       const vertical = Math.abs(gray[center + width] - gray[center - width]);
       const contrast = horizontal + vertical;
       const noise = Math.abs((x * 37 + y * 53 + aiIndex * 97) % 100);
-      if (contrast > contrastLimit && gray[center] < 248 && (!isCloudflare || noise > 27)) {
-        const jitterRange = isCloudflare ? 13 : 3;
+      if (contrast > 54 && gray[center] < 248) {
+        const jitterRange = 3;
         const jitterX = ((x * 17 + y * 7 + aiIndex * 11) % jitterRange) - Math.floor(jitterRange / 2);
         const jitterY = ((x * 5 + y * 13 + aiIndex * 19) % jitterRange) - Math.floor(jitterRange / 2);
         const targetX = Math.round((x / width) * output.width + jitterX);
@@ -68,12 +114,9 @@ async function forceSinglePenStyle(source: string, aiIndex: number) {
         outputContext.fillRect(
           targetX,
           targetY,
-          isCloudflare ? 5 + (noise % 3) : 3 + ((x + y) % 2),
-          isCloudflare ? 3 + (noise % 2) : 3
+          3 + ((x + y) % 2),
+          3
         );
-        if (isCloudflare && noise > 91) {
-          outputContext.fillRect(targetX + 5, targetY - 4, 8, 3);
-        }
       }
     }
   }
