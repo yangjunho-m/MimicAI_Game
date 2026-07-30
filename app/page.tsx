@@ -7,7 +7,7 @@ type Screen = "profile" | "home" | "rooms" | "lobby" | "draw" | "ai" | "vote" | 
 type Drawing = { id: string; author: string; image: string; isAI: boolean };
 type Profile = { name: string; color: string; face: string; shape: string };
 type OnlineProfile = Profile & { id: string; host?: boolean };
-type PublicRoom = { code: string; hostName: string; players: number; updatedAt: number };
+type PublicRoom = { code: string; name: string; hostName: string; players: number; visibility: "public" | "private"; passwordHash?: string; updatedAt: number };
 type ControlMessage =
   | { type: "start"; word: string; eliminatedIds: string[] }
   | { type: "gallery"; drawings: Drawing[] }
@@ -19,6 +19,7 @@ const AVATAR_COLORS = ["#ff5d3b", "#6e56cf", "#168c73", "#f4b400", "#ef8eb8", "#
 const FACES = ["•ᴗ•", "¬‿¬", "•̀ᴗ•́", "◕‿◕", "×‿×", "•_•"];
 const SHAPES = ["round", "square", "blob"];
 const randomCode = () => Math.random().toString(36).slice(2, 6).toUpperCase();
+const hashPassword = (value: string) => [...value].reduce((hash, char) => ((hash * 31) + char.charCodeAt(0)) >>> 0, 2166136261).toString(36);
 
 function pseudoAiSketch(word: string) {
   const canvas = document.createElement("canvas");
@@ -132,6 +133,11 @@ export default function Home() {
   const [isHost, setIsHost] = useState(false);
   const [onlineProfiles, setOnlineProfiles] = useState<Record<string, OnlineProfile>>({});
   const [publicRooms, setPublicRooms] = useState<Record<string, PublicRoom>>({});
+  const [roomName, setRoomName] = useState("");
+  const [roomVisibility, setRoomVisibility] = useState<"public" | "private">("public");
+  const [roomPassword, setRoomPassword] = useState("");
+  const [passwordAttempts, setPasswordAttempts] = useState<Record<string, string>>({});
+  const [passwordErrors, setPasswordErrors] = useState<Record<string, boolean>>({});
   const [connectionText, setConnectionText] = useState("연결 중...");
   const [playerStatuses, setPlayerStatuses] = useState<Record<string, PlayerStatus>>({});
   const [aiPlayerStatus, setAiPlayerStatus] = useState<PlayerStatus>("drawing");
@@ -149,6 +155,7 @@ export default function Home() {
   const p2pRoomRef = useRef<ReturnType<typeof joinRoom> | null>(null);
   const directoryRoomRef = useRef<ReturnType<typeof joinRoom> | null>(null);
   const isHostRef = useRef(false);
+  const hostedRoomRef = useRef<{ name: string; visibility: "public" | "private"; passwordHash?: string }>({ name: "", visibility: "public" });
   const profileRef = useRef(profile);
   const wordRef = useRef(word);
   const profilesRef = useRef<Record<string, OnlineProfile>>({});
@@ -189,22 +196,33 @@ export default function Home() {
     const directory = joinRoom({ appId: "mimic-ai-game-2026-directory-v1" }, "PUBLIC-ROOMS");
     directoryRoomRef.current = directory;
     const roomAction = directory.makeAction<PublicRoom>("room");
-    const publish = () => {
+    const queryAction = directory.makeAction<{ requestedAt: number }>("query");
+    const publish = (target?: string) => {
       if (!isHostRef.current || screen !== "lobby") return;
+      const hosted = hostedRoomRef.current;
       roomAction.send({
         code: roomCode,
+        name: hosted.name || `${profileRef.current.name}의 방`,
         hostName: profileRef.current.name,
         players: Object.keys(profilesRef.current).length,
+        visibility: hosted.visibility,
+        passwordHash: hosted.passwordHash,
         updatedAt: Date.now()
-      });
+      }, target ? { target } : undefined);
     };
     roomAction.onMessage = room => setPublicRooms(old => ({ ...old, [room.code]: room }));
-    directory.onPeerJoin = () => publish();
+    queryAction.onMessage = (_query, context) => publish(context.peerId);
+    directory.onPeerJoin = peerId => {
+      publish(peerId);
+      if (screen === "rooms") queryAction.send({ requestedAt: Date.now() }, { target: peerId });
+    };
     publish();
+    if (screen === "rooms") queryAction.send({ requestedAt: Date.now() });
     const timer = window.setInterval(() => {
       publish();
+      if (screen === "rooms") queryAction.send({ requestedAt: Date.now() });
       setPublicRooms(old => Object.fromEntries(Object.entries(old).filter(([, room]) => Date.now() - room.updatedAt < 12000)));
-    }, 4000);
+    }, 2500);
     return () => {
       window.clearInterval(timer);
       if (directoryRoomRef.current === directory) directoryRoomRef.current = null;
@@ -219,6 +237,22 @@ export default function Home() {
     const invitedRoom = new URLSearchParams(window.location.search).get("room");
     if (invitedRoom) connectOnline(false, invitedRoom);
     else setScreen("home");
+  };
+  const createOnlineRoom = () => {
+    if (roomVisibility === "private" && !roomPassword.trim()) return;
+    hostedRoomRef.current = {
+      name: roomName.trim().slice(0, 20) || `${profileRef.current.name}의 방`,
+      visibility: roomVisibility,
+      passwordHash: roomVisibility === "private" ? hashPassword(roomPassword) : undefined
+    };
+    connectOnline(true);
+  };
+  const joinListedRoom = (room: PublicRoom) => {
+    if (room.visibility === "private" && hashPassword(passwordAttempts[room.code] || "") !== room.passwordHash) {
+      setPasswordErrors(old => ({ ...old, [room.code]: true }));
+      return;
+    }
+    connectOnline(false, room.code);
   };
   const finishOnlineRound = useCallback(() => {
     const humanDrawings = Object.values(submittedRef.current);
@@ -443,13 +477,20 @@ export default function Home() {
     {screen === "rooms" && <section className="panel room-browser">
       <div className="section-top"><span>PUBLIC ROOM BOARD</span><span className="status-pill">실시간 탐색 중</span></div>
       <div className="room-browser-head">
-        <div><div className="eyebrow"><span>02</span> PLAY WITH OTHERS</div><h2>함께 그릴<br /><em>사람을 찾으세요.</em></h2><p>공개 방을 만들면 지금 접속 중인 다른 사람의 게시판에 나타납니다.</p></div>
-        <button className="primary create-public-room" onClick={() => connectOnline(true)}>새 공개 방 만들기 <span>＋</span></button>
+        <div><div className="eyebrow"><span>02</span> PLAY WITH OTHERS</div><h2>함께 그릴<br /><em>사람을 찾으세요.</em></h2><p>방을 만들면 지금 접속 중인 다른 사람의 게시판에 나타납니다.</p></div>
+        <div className="room-create-card">
+          <label><span>방 이름</span><input maxLength={20} value={roomName} onChange={e => setRoomName(e.target.value)} placeholder={`${profile.name}의 방`} /></label>
+          <div className="visibility-tabs"><button className={roomVisibility === "public" ? "active" : ""} onClick={() => setRoomVisibility("public")}>공개 방</button><button className={roomVisibility === "private" ? "active" : ""} onClick={() => setRoomVisibility("private")}>비공개 방</button></div>
+          {roomVisibility === "private" && <label><span>비밀번호</span><input type="password" maxLength={12} value={roomPassword} onChange={e => setRoomPassword(e.target.value)} placeholder="목록에서 참가할 때 필요" /></label>}
+          <button className="primary create-public-room" disabled={roomVisibility === "private" && !roomPassword.trim()} onClick={createOnlineRoom}>방 만들기 <span>＋</span></button>
+        </div>
       </div>
       <div className="room-board">
         <div className="room-board-title"><strong>열린 방</strong><span>{Object.keys(publicRooms).length} ROOMS ONLINE</span></div>
-        {Object.values(publicRooms).length > 0 ? Object.values(publicRooms).sort((a, b) => b.updatedAt - a.updatedAt).map(room => <article key={room.code} className="public-room-row">
-          <span className="room-live-dot" /><div><strong>{room.hostName}의 방</strong><small>ROOM / {room.code}</small></div><b>{room.players} / 4명</b><button onClick={() => connectOnline(false, room.code)} disabled={room.players >= 4}>참가하기 →</button>
+        {Object.values(publicRooms).length > 0 ? Object.values(publicRooms).sort((a, b) => b.updatedAt - a.updatedAt).map(room => <article key={room.code} className={`public-room-row ${room.visibility}`}>
+          <span className="room-live-dot" /><div className="room-row-info"><strong>{room.visibility === "private" ? "🔒 " : ""}{room.name}</strong><small>{room.hostName} · ROOM / {room.code}</small></div><b>{room.players} / 4명</b>
+          {room.visibility === "private" && <input className={passwordErrors[room.code] ? "wrong" : ""} type="password" placeholder={passwordErrors[room.code] ? "비밀번호가 달라요" : "비밀번호"} value={passwordAttempts[room.code] || ""} onChange={e => { setPasswordAttempts(old => ({ ...old, [room.code]: e.target.value })); setPasswordErrors(old => ({ ...old, [room.code]: false })); }} onKeyDown={e => { if (e.key === "Enter") joinListedRoom(room); }} />}
+          <button onClick={() => joinListedRoom(room)} disabled={room.players >= 4}>참가하기 →</button>
         </article>) : <div className="empty-rooms"><strong>아직 열린 방이 없습니다.</strong><p>첫 공개 방을 만들면 다른 접속자들이 바로 참가할 수 있어요.</p></div>}
       </div>
       <div className="direct-join"><span>초대 코드로 바로 참가</span><div><input value={joinCode} maxLength={6} placeholder="ROOM CODE" onChange={e => setJoinCode(e.target.value.toUpperCase())} onKeyDown={e => { if (e.key === "Enter") connectOnline(false, joinCode); }} /><button onClick={() => connectOnline(false, joinCode)} disabled={joinCode.trim().length < 4}>입장 →</button></div></div>
