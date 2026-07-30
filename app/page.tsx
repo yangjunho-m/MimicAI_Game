@@ -277,10 +277,10 @@ export default function Home() {
   const submitOnlineVote = () => {
     if (!selected) return;
     votesRef.current[selfId] = selected;
-    if (isHost) finishOnlineVote();
-    else sendVoteRef.current?.({ id: selfId, drawingId: selected });
     setAiStatus("다른 플레이어의 투표를 기다리는 중...");
     setScreen("ai");
+    if (isHost) finishOnlineVote();
+    else sendVoteRef.current?.({ id: selfId, drawingId: selected });
   };
   const startGame = () => { setWord(WORDS[Math.floor(Math.random() * WORDS.length)]); setDrawings([]); setTurn(0); setSelected(""); setScreen("draw"); };
   const submitHuman = (image: string) => {
