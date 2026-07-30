@@ -15,12 +15,25 @@ type ControlMessage =
   | { type: "gallery"; drawings: Drawing[]; voteEndsAt: number }
   | { type: "result"; eliminatedId: string | null };
 type PlayerStatus = "drawing" | "done" | "eliminated";
-const WORDS = ["우주에서 라면을 먹는 고양이", "비 오는 날의 놀이공원", "춤추는 선인장", "달에 간 붕어빵"];
+const WORDS = [
+  "우주에서 라면을 먹는 고양이", "잠수함을 운전하는 고양이", "구름 위에서 낮잠 자는 고양이",
+  "마법 빗자루를 타는 고양이", "도시를 구하는 거대한 고양이", "눈사람을 만드는 고양이",
+  "비 오는 날의 놀이공원", "유령만 남은 놀이공원", "바닷속에 가라앉은 놀이공원",
+  "구름 위를 떠다니는 놀이공원", "한밤중 불이 켜진 놀이공원",
+  "춤추는 선인장", "기타를 연주하는 선인장", "우주복을 입은 선인장",
+  "스케이트보드를 타는 선인장", "비를 맞고 자라는 선인장",
+  "달에 간 붕어빵", "바다를 헤엄치는 붕어빵", "로켓을 타는 붕어빵",
+  "눈밭에서 길을 잃은 붕어빵", "하늘을 날아다니는 붕어빵"
+];
 const COLORS = ["#171717", "#ff5d3b", "#6e56cf", "#168c73", "#f4b400"];
 const AVATAR_COLORS = ["#ff5d3b", "#6e56cf", "#168c73", "#f4b400", "#ef8eb8", "#58a6d8"];
 const FACES = ["•ᴗ•", "¬‿¬", "•̀ᴗ•́", "◕‿◕", "×‿×", "•_•"];
 const SHAPES = ["round", "square", "blob"];
 const randomCode = () => Math.random().toString(36).slice(2, 6).toUpperCase();
+const randomWord = (previous = "") => {
+  const candidates = WORDS.filter(item => item !== previous);
+  return candidates[Math.floor(Math.random() * candidates.length)];
+};
 const hashPassword = (value: string) => [...value].reduce((hash, char) => ((hash * 31) + char.charCodeAt(0)) >>> 0, 2166136261).toString(36);
 const DIRECTORY_CONFIG = {
   appId: "mimic-ai-game-2026-directory-v2",
@@ -68,6 +81,12 @@ function pseudoAiSketch(word: string) {
     c.stroke();
   };
   const accent = COLORS[(seed % 4) + 1];
+  const compositionScale = .82 + ((seed % 29) / 100);
+  const flip = seed % 2 ? -1 : 1;
+  c.translate(450 + wobble(20, 65), 310 + wobble(21, 42));
+  c.rotate(wobble(22, .11));
+  c.scale(compositionScale * flip, compositionScale);
+  c.translate(-450, -310);
   line();
 
   if (word.includes("놀이공원")) {
@@ -497,7 +516,7 @@ export default function Home() {
   };
   const startOnlineGame = () => {
     if (!isHost || Object.keys(onlineProfiles).length < 2) return;
-    const nextWord = WORDS[Math.floor(Math.random() * WORDS.length)];
+    const nextWord = randomWord(wordRef.current);
     const statuses = Object.fromEntries(Object.keys(onlineProfiles).map(id => [id, eliminatedRef.current.includes(id) ? "eliminated" : "drawing"])) as Record<string, PlayerStatus>;
     voteGateOpenRef.current = false; setVoteDeadline(0);
     if (voteTimerRef.current !== null) window.clearTimeout(voteTimerRef.current);
@@ -539,7 +558,7 @@ export default function Home() {
     if (isHost) finishOnlineVote();
     else sendVoteRef.current?.({ id: selfId, drawingId: choice });
   };
-  const startGame = () => { setWord(WORDS[Math.floor(Math.random() * WORDS.length)]); setDrawings([]); setTurn(0); setSelected(""); setScreen("draw"); };
+  const startGame = () => { setWord(randomWord(word)); setDrawings([]); setTurn(0); setSelected(""); setScreen("draw"); };
   const submitHuman = (image: string) => {
     if (isOnline) {
       if (hasSubmitted) return;
