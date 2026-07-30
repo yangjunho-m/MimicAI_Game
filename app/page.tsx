@@ -3,10 +3,11 @@
 import { PointerEvent, useCallback, useEffect, useRef, useState } from "react";
 import { joinRoom, selfId } from "trystero";
 
-type Screen = "profile" | "home" | "lobby" | "draw" | "ai" | "vote" | "result";
+type Screen = "profile" | "home" | "rooms" | "lobby" | "draw" | "ai" | "vote" | "result";
 type Drawing = { id: string; author: string; image: string; isAI: boolean };
 type Profile = { name: string; color: string; face: string; shape: string };
 type OnlineProfile = Profile & { id: string; host?: boolean };
+type PublicRoom = { code: string; hostName: string; players: number; updatedAt: number };
 type ControlMessage =
   | { type: "start"; word: string; eliminatedIds: string[] }
   | { type: "gallery"; drawings: Drawing[] }
@@ -130,6 +131,7 @@ export default function Home() {
   const [isOnline, setIsOnline] = useState(false);
   const [isHost, setIsHost] = useState(false);
   const [onlineProfiles, setOnlineProfiles] = useState<Record<string, OnlineProfile>>({});
+  const [publicRooms, setPublicRooms] = useState<Record<string, PublicRoom>>({});
   const [connectionText, setConnectionText] = useState("연결 중...");
   const [playerStatuses, setPlayerStatuses] = useState<Record<string, PlayerStatus>>({});
   const [aiPlayerStatus, setAiPlayerStatus] = useState<PlayerStatus>("drawing");
@@ -145,6 +147,8 @@ export default function Home() {
   const [selected, setSelected] = useState("");
   const [copied, setCopied] = useState(false);
   const p2pRoomRef = useRef<ReturnType<typeof joinRoom> | null>(null);
+  const directoryRoomRef = useRef<ReturnType<typeof joinRoom> | null>(null);
+  const isHostRef = useRef(false);
   const profileRef = useRef(profile);
   const wordRef = useRef(word);
   const profilesRef = useRef<Record<string, OnlineProfile>>({});
@@ -162,8 +166,10 @@ export default function Home() {
   useEffect(() => { wordRef.current = word; }, [word]);
   useEffect(() => { profilesRef.current = onlineProfiles; }, [onlineProfiles]);
   useEffect(() => { eliminatedRef.current = eliminatedIds; }, [eliminatedIds]);
+  useEffect(() => { isHostRef.current = isHost; }, [isHost]);
   useEffect(() => () => {
     if (aiTimerRef.current !== null) window.clearTimeout(aiTimerRef.current);
+    void directoryRoomRef.current?.leave();
     void p2pRoomRef.current?.leave();
   }, []);
   useEffect(() => {
@@ -178,6 +184,33 @@ export default function Home() {
       } catch { /* 새 프로필 생성 */ }
     }
   }, []);
+  useEffect(() => {
+    if (screen !== "rooms" && !(screen === "lobby" && isHost)) return;
+    const directory = joinRoom({ appId: "mimic-ai-game-2026-directory-v1" }, "PUBLIC-ROOMS");
+    directoryRoomRef.current = directory;
+    const roomAction = directory.makeAction<PublicRoom>("room");
+    const publish = () => {
+      if (!isHostRef.current || screen !== "lobby") return;
+      roomAction.send({
+        code: roomCode,
+        hostName: profileRef.current.name,
+        players: Object.keys(profilesRef.current).length,
+        updatedAt: Date.now()
+      });
+    };
+    roomAction.onMessage = room => setPublicRooms(old => ({ ...old, [room.code]: room }));
+    directory.onPeerJoin = () => publish();
+    publish();
+    const timer = window.setInterval(() => {
+      publish();
+      setPublicRooms(old => Object.fromEntries(Object.entries(old).filter(([, room]) => Date.now() - room.updatedAt < 12000)));
+    }, 4000);
+    return () => {
+      window.clearInterval(timer);
+      if (directoryRoomRef.current === directory) directoryRoomRef.current = null;
+      void directory.leave();
+    };
+  }, [screen, isHost, roomCode]);
   const saveProfile = () => {
     const clean = { ...profile, name: profile.name.trim().slice(0, 12) };
     if (!clean.name) return;
@@ -230,7 +263,7 @@ export default function Home() {
     p2pRoomRef.current?.leave();
     const code = (requestedCode || randomCode()).trim().toUpperCase();
     if (code.length < 4) return;
-    setRoomCode(code); setIsOnline(true); setIsHost(host); setConnectionText("친구를 기다리는 중...");
+    setRoomCode(code); setIsOnline(true); setIsHost(host); isHostRef.current = host; setConnectionText("친구를 기다리는 중...");
     const mine: OnlineProfile = { ...profileRef.current, id: selfId, host };
     const initial = { [selfId]: mine };
     setOnlineProfiles(initial); profilesRef.current = initial;
@@ -272,7 +305,7 @@ export default function Home() {
       }
     };
     drawingAction.onMessage = (data, context) => {
-      if (!host) return;
+      if (!isHostRef.current) return;
       submittedRef.current[context.peerId] = data;
       finishOnlineRound();
     };
@@ -281,7 +314,7 @@ export default function Home() {
       if (data.id === "__ai__") setAiPlayerStatus(data.status);
     };
     voteAction.onMessage = data => {
-      if (!host) return;
+      if (!isHostRef.current) return;
       votesRef.current[data.id] = data.drawingId;
       finishOnlineVote();
     };
@@ -291,7 +324,17 @@ export default function Home() {
     };
     p2pRoom.onPeerLeave = peerId => {
       setOnlineProfiles(old => {
-        const next = { ...old }; delete next[peerId]; profilesRef.current = next; return next;
+        const departedWasHost = Boolean(old[peerId]?.host);
+        const next = { ...old }; delete next[peerId];
+        if (departedWasHost) {
+          const nextHostId = Object.keys(next).sort()[0];
+          Object.keys(next).forEach(id => { next[id] = { ...next[id], host: id === nextHostId }; });
+          const promoted = nextHostId === selfId;
+          isHostRef.current = promoted;
+          setIsHost(promoted);
+          if (promoted) setConnectionText("방장이 나가 새 방장이 되었습니다");
+        }
+        profilesRef.current = next; return next;
       });
     };
     setScreen("lobby");
@@ -310,7 +353,7 @@ export default function Home() {
     if (aiTimerRef.current !== null) window.clearTimeout(aiTimerRef.current);
     aiTimerRef.current = null; aiReadyRef.current = false;
     void p2pRoomRef.current?.leave();
-    p2pRoomRef.current = null; setIsOnline(false); setIsHost(false); setOnlineProfiles({});
+    p2pRoomRef.current = null; setIsOnline(false); setIsHost(false); isHostRef.current = false; setOnlineProfiles({});
     window.history.replaceState({}, "", window.location.pathname);
     setScreen("home");
   };
@@ -392,10 +435,24 @@ export default function Home() {
       <div className="eyebrow"><span>01</span> DRAW LIKE A MACHINE</div>
       <h1>사람인 걸<br /><em>들키지 마.</em></h1>
       <p className="hero-copy"><strong>{profile.name}</strong>님은 사람입니다. 하지만 오늘만큼은 AI처럼 그리세요.<br />서로의 그림 사이에 숨은 진짜 AI를 찾아내는 드로잉 블러핑 게임.</p>
-      <div className="hero-actions"><button className="primary" onClick={() => connectOnline(true)}>온라인 방 만들기 <span>↗</span></button><button className="secondary" onClick={() => { setIsOnline(false); setPlayers(2); startGame(); }}>한 기기 데모</button></div>
+      <div className="hero-actions"><button className="primary" onClick={() => setScreen("rooms")}>온라인 플레이 <span>↗</span></button><button className="secondary" onClick={() => { setIsOnline(false); setPlayers(2); startGame(); }}>한 기기 데모</button></div>
       <div className="join-room"><span>친구 방에 참여</span><div><input value={joinCode} maxLength={6} placeholder="초대 코드" onChange={e => setJoinCode(e.target.value.toUpperCase())} onKeyDown={e => { if (e.key === "Enter") connectOnline(false, joinCode); }} /><button onClick={() => connectOnline(false, joinCode)} disabled={joinCode.trim().length < 4}>입장 →</button></div></div>
       <div className="how-grid"><article><b>01</b><strong>같은 제시어</strong><p>모두에게 하나의 기묘한 제시어가 공개됩니다.</p></article><article><b>02</b><strong>사람처럼? AI처럼!</strong><p>색과 굵기만으로 AI 같은 그림을 완성하세요.</p></article><article><b>03</b><strong>속이고 찾아내기</strong><p>진짜 AI 그림에 투표하고 정체를 공개합니다.</p></article></div>
       <div className="hero-orbit" aria-hidden="true"><span>HUMAN?</span><span>AI?</span><i /></div>
+    </section>}
+    {screen === "rooms" && <section className="panel room-browser">
+      <div className="section-top"><span>PUBLIC ROOM BOARD</span><span className="status-pill">실시간 탐색 중</span></div>
+      <div className="room-browser-head">
+        <div><div className="eyebrow"><span>02</span> PLAY WITH OTHERS</div><h2>함께 그릴<br /><em>사람을 찾으세요.</em></h2><p>공개 방을 만들면 지금 접속 중인 다른 사람의 게시판에 나타납니다.</p></div>
+        <button className="primary create-public-room" onClick={() => connectOnline(true)}>새 공개 방 만들기 <span>＋</span></button>
+      </div>
+      <div className="room-board">
+        <div className="room-board-title"><strong>열린 방</strong><span>{Object.keys(publicRooms).length} ROOMS ONLINE</span></div>
+        {Object.values(publicRooms).length > 0 ? Object.values(publicRooms).sort((a, b) => b.updatedAt - a.updatedAt).map(room => <article key={room.code} className="public-room-row">
+          <span className="room-live-dot" /><div><strong>{room.hostName}의 방</strong><small>ROOM / {room.code}</small></div><b>{room.players} / 4명</b><button onClick={() => connectOnline(false, room.code)} disabled={room.players >= 4}>참가하기 →</button>
+        </article>) : <div className="empty-rooms"><strong>아직 열린 방이 없습니다.</strong><p>첫 공개 방을 만들면 다른 접속자들이 바로 참가할 수 있어요.</p></div>}
+      </div>
+      <div className="direct-join"><span>초대 코드로 바로 참가</span><div><input value={joinCode} maxLength={6} placeholder="ROOM CODE" onChange={e => setJoinCode(e.target.value.toUpperCase())} onKeyDown={e => { if (e.key === "Enter") connectOnline(false, joinCode); }} /><button onClick={() => connectOnline(false, joinCode)} disabled={joinCode.trim().length < 4}>입장 →</button></div></div>
     </section>}
     {screen === "lobby" && <section className="panel lobby">
       <div className="section-top"><span>ROOM / {roomCode}</span><span className="status-pill">{connectionText}</span></div>
