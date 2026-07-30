@@ -1,0 +1,10 @@
+{
+  "files.exclude": {
+    "**/.git": true,
+    "**/.pnpm-store": true,
+    "**/.wrangler": true,
+    "**/dist": true,
+    "**/node_modules": true,
+    "**/*.tar.gz": true
+  }
+}
