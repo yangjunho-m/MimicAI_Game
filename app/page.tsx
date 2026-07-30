@@ -44,38 +44,48 @@ function pseudoAiSketch(word: string) {
     if (Math.abs(end - start) >= Math.PI * 1.99) c.closePath();
     c.stroke();
   };
+  const roughLine = (x1: number, y1: number, x2: number, y2: number, roughness = 6) => {
+    const steps = 12;
+    c.beginPath(); c.moveTo(x1, y1);
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps;
+      const fade = Math.sin(Math.PI * t);
+      const x = x1 + (x2 - x1) * t + Math.sin(seed * .13 + i * 2.4) * roughness * fade;
+      const y = y1 + (y2 - y1) * t + Math.cos(seed * .09 + i * 1.7) * roughness * fade;
+      c.lineTo(x, y);
+    }
+    c.stroke();
+  };
   const accent = COLORS[(seed % 4) + 1];
   line();
 
   if (word.includes("놀이공원")) {
     roughArc(455, 285, 175 + wobble(1), 171 + wobble(3), 0, Math.PI * 2, wobble(4, .035), 9);
-    for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; c.beginPath(); c.moveTo(455, 285); c.lineTo(455 + Math.cos(a) * 175, 285 + Math.sin(a) * 175); c.stroke(); }
-    line(accent, 12); c.beginPath(); c.moveTo(335, 520); c.lineTo(455, 285); c.lineTo(575, 520); c.stroke();
-    line(); for (let i = 0; i < 6; i++) { c.beginPath(); c.moveTo(155 + i * 125, 80 + wobble(i, 18)); c.lineTo(145 + i * 125, 125 + wobble(i + 2, 14)); c.stroke(); }
+    for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; roughLine(455, 285, 455 + Math.cos(a) * 175, 285 + Math.sin(a) * 175, 5); }
+    line(accent, 12); roughLine(335, 520, 455, 285, 7); roughLine(455, 285, 575, 520, 7);
+    line(); for (let i = 0; i < 6; i++) roughLine(155 + i * 125, 80 + wobble(i, 18), 145 + i * 125, 125 + wobble(i + 2, 14), 4);
   } else if (word.includes("선인장")) {
     line(accent, 16); c.beginPath(); c.moveTo(445, 500); c.bezierCurveTo(415, 390, 430, 230, 455, 125); c.stroke();
     c.beginPath(); c.moveTo(430, 330); c.bezierCurveTo(345, 350, 330, 285, 340, 235); c.moveTo(465, 275); c.bezierCurveTo(555, 295, 575, 230, 565, 180); c.stroke();
     line(); roughArc(455, 520, 150, 38, 0, Math.PI * 2, wobble(5, .04), 5);
-    for (let i = 0; i < 14; i++) { const x = 350 + (i * 47) % 220, y = 150 + (i * 71) % 300; c.beginPath(); c.moveTo(x, y); c.lineTo(x + wobble(i, 12), y - 13); c.stroke(); }
-    dot(420, 205); dot(480, 205); c.beginPath(); c.arc(452, 235, 35, .1, Math.PI - .1); c.stroke();
+    for (let i = 0; i < 14; i++) { const x = 350 + (i * 47) % 220, y = 150 + (i * 71) % 300; roughLine(x, y, x + wobble(i, 12), y - 13, 3); }
   } else if (word.includes("붕어빵")) {
     line(accent, 13); roughArc(430, 340, 190 + wobble(2), 95 + wobble(6, 5), 0, Math.PI * 2, -.08 + wobble(7, .025), 8);
-    c.beginPath(); c.moveTo(590, 325); c.lineTo(715, 245); c.lineTo(690, 385); c.closePath(); c.stroke();
+    roughLine(590, 325, 715, 245, 8); roughLine(715, 245, 690, 385, 8); roughLine(690, 385, 590, 325, 8);
     line(); roughArc(680, 145, 75, 72, .3, Math.PI * 1.7, wobble(8, .03), 6);
-    c.beginPath(); c.moveTo(300, 295); c.quadraticCurveTo(430, 340, 300, 395); c.moveTo(370, 255); c.lineTo(420, 425); c.moveTo(455, 248); c.lineTo(490, 425); c.stroke();
-    dot(280, 330, 9);
+    c.beginPath(); c.moveTo(300, 295); c.quadraticCurveTo(430, 340, 300, 395); c.stroke();
+    roughLine(370, 255, 420, 425, 5); roughLine(455, 248, 490, 425, 5);
     for (let i = 0; i < 10; i++) dot(120 + ((i * 83) % 650), 80 + ((i * 47) % 130), 3 + (i % 3));
   } else {
     roughArc(440, 255, 120 + wobble(1), 116 + wobble(9, 5), 0, Math.PI * 2, wobble(10, .04), 7);
-    c.beginPath(); c.moveTo(350, 185); c.lineTo(390 + wobble(1), 95); c.lineTo(430, 165); c.moveTo(475, 165); c.lineTo(520 + wobble(2), 95); c.lineTo(545, 190); c.stroke();
-    dot(400, 250); dot(480, 250); c.beginPath(); c.moveTo(430, 290); c.quadraticCurveTo(450, 315, 475, 290); c.stroke();
+    roughLine(350, 185, 390 + wobble(1), 95, 7); roughLine(390 + wobble(1), 95, 430, 165, 7); roughLine(475, 165, 520 + wobble(2), 95, 7); roughLine(520 + wobble(2), 95, 545, 190, 7);
     line(accent, 13); roughArc(445, 440, 185 + wobble(11, 8), 75 + wobble(12, 5), 0, Math.PI * 2, wobble(13, .025), 7);
     for (let i = 0; i < 5; i++) { c.beginPath(); c.moveTo(300 + i * 70, 410 + wobble(i)); c.quadraticCurveTo(345 + i * 45, 455, 330 + i * 75, 475 + wobble(i + 4)); c.stroke(); }
   }
   return canvas.toDataURL("image/png");
 }
 
-function DrawingBoard({ onSubmit, player }: { onSubmit: (image: string) => void; player: string }) {
+function DrawingBoard({ onSubmit, player, submitted = false }: { onSubmit: (image: string) => void; player: string; submitted?: boolean }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const drawing = useRef(false);
   const [color, setColor] = useState(COLORS[0]);
@@ -107,7 +117,7 @@ function DrawingBoard({ onSubmit, player }: { onSubmit: (image: string) => void;
       <div className="tool-group"><span className="tool-label">INK</span>{COLORS.map(item => <button key={item} className={`swatch ${color === item ? "active" : ""}`} style={{ background: item }} aria-label={`펜 색상 ${item}`} onClick={() => setColor(item)} />)}</div>
       <div className="tool-group grow"><span className="tool-label">STROKE {width}px</span><input aria-label="펜 두께" type="range" min="2" max="28" value={width} onChange={e => setWidth(Number(e.target.value))} /></div>
       <button className="icon-button" onClick={undo}>↶ 되돌리기</button>
-      <button className="primary compact" onClick={() => onSubmit(ref.current!.toDataURL("image/png"))}>그림 제출 →</button>
+      <button className="primary compact" disabled={submitted} onClick={() => onSubmit(ref.current!.toDataURL("image/png"))}>{submitted ? "제출 완료 ✓" : "그림 제출 →"}</button>
     </div>
   </div>;
 }
@@ -122,6 +132,9 @@ export default function Home() {
   const [onlineProfiles, setOnlineProfiles] = useState<Record<string, OnlineProfile>>({});
   const [connectionText, setConnectionText] = useState("연결 중...");
   const [playerStatuses, setPlayerStatuses] = useState<Record<string, PlayerStatus>>({});
+  const [aiPlayerStatus, setAiPlayerStatus] = useState<PlayerStatus>("drawing");
+  const [hasSubmitted, setHasSubmitted] = useState(false);
+  const [hasVoted, setHasVoted] = useState(false);
   const [eliminatedIds, setEliminatedIds] = useState<string[]>([]);
   const [roundEliminatedId, setRoundEliminatedId] = useState<string | null>(null);
   const [players, setPlayers] = useState(2);
@@ -138,6 +151,8 @@ export default function Home() {
   const eliminatedRef = useRef<string[]>([]);
   const submittedRef = useRef<Record<string, Drawing>>({});
   const votesRef = useRef<Record<string, string>>({});
+  const aiReadyRef = useRef(false);
+  const aiTimerRef = useRef<number | null>(null);
   const sendProfileRef = useRef<((data: OnlineProfile, options?: { target?: string }) => Promise<void>) | null>(null);
   const sendControlRef = useRef<((data: ControlMessage, options?: { target?: string }) => Promise<void>) | null>(null);
   const sendDrawingRef = useRef<((data: Drawing, options?: { target?: string }) => Promise<void>) | null>(null);
@@ -147,7 +162,10 @@ export default function Home() {
   useEffect(() => { wordRef.current = word; }, [word]);
   useEffect(() => { profilesRef.current = onlineProfiles; }, [onlineProfiles]);
   useEffect(() => { eliminatedRef.current = eliminatedIds; }, [eliminatedIds]);
-  useEffect(() => () => { void p2pRoomRef.current?.leave(); }, []);
+  useEffect(() => () => {
+    if (aiTimerRef.current !== null) window.clearTimeout(aiTimerRef.current);
+    void p2pRoomRef.current?.leave();
+  }, []);
   useEffect(() => {
     const saved = window.localStorage.getItem("mimic-profile");
     if (saved) {
@@ -172,7 +190,7 @@ export default function Home() {
   const finishOnlineRound = useCallback(() => {
     const humanDrawings = Object.values(submittedRef.current);
     const activeCount = Object.keys(profilesRef.current).filter(id => !eliminatedRef.current.includes(id)).length;
-    if (humanDrawings.length < activeCount) return;
+    if (humanDrawings.length < activeCount || !aiReadyRef.current) return;
     const aiDrawing: Drawing = { id: `ai-${Date.now()}`, author: "MIMIC BOT", image: pseudoAiSketch(wordRef.current), isAI: true };
     const complete = [...humanDrawings, aiDrawing];
     setDrawings(complete);
@@ -180,6 +198,20 @@ export default function Home() {
     sendControlRef.current?.({ type: "gallery", drawings: complete });
     window.setTimeout(() => setScreen("vote"), 450);
   }, []);
+  const startAiDrawing = useCallback(() => {
+    if (aiTimerRef.current !== null) window.clearTimeout(aiTimerRef.current);
+    aiReadyRef.current = false;
+    setAiPlayerStatus("drawing");
+    setPlayerStatuses(old => ({ ...old, "__ai__": "drawing" }));
+    sendStatusRef.current?.({ id: "__ai__", status: "drawing" });
+    aiTimerRef.current = window.setTimeout(() => {
+      aiReadyRef.current = true;
+      setAiPlayerStatus("done");
+      setPlayerStatuses(old => ({ ...old, "__ai__": "done" }));
+      sendStatusRef.current?.({ id: "__ai__", status: "done" });
+      finishOnlineRound();
+    }, 3000 + Math.floor(Math.random() * 4000));
+  }, [finishOnlineRound]);
   const finishOnlineVote = useCallback(() => {
     if (Object.keys(votesRef.current).length < Object.keys(profilesRef.current).length) return;
     const counts: Record<string, number> = {};
@@ -226,10 +258,11 @@ export default function Home() {
       if (data.type === "start") {
         eliminatedRef.current = data.eliminatedIds; setEliminatedIds(data.eliminatedIds);
         const statuses = Object.fromEntries(Object.keys(profilesRef.current).map(id => [id, data.eliminatedIds.includes(id) ? "eliminated" : "drawing"])) as Record<string, PlayerStatus>;
-        setPlayerStatuses(statuses); votesRef.current = {}; setRoundEliminatedId(null);
+        setPlayerStatuses({ ...statuses, "__ai__": "drawing" }); votesRef.current = {}; setRoundEliminatedId(null);
+        aiReadyRef.current = false; setAiPlayerStatus("drawing"); setHasSubmitted(false); setHasVoted(false);
         wordRef.current = data.word; setWord(data.word); setDrawings([]); setSelected(""); submittedRef.current = {}; setScreen("draw");
       } else if (data.type === "gallery") {
-        setDrawings(data.drawings); setAiStatus("모든 그림이 도착했습니다!"); setScreen("vote");
+        setDrawings(data.drawings); setAiStatus("모든 그림이 도착했습니다!"); setHasVoted(false); setScreen("vote");
       } else {
         if (data.eliminatedId && !eliminatedRef.current.includes(data.eliminatedId)) {
           eliminatedRef.current = [...eliminatedRef.current, data.eliminatedId];
@@ -243,7 +276,10 @@ export default function Home() {
       submittedRef.current[context.peerId] = data;
       finishOnlineRound();
     };
-    statusAction.onMessage = data => setPlayerStatuses(old => ({ ...old, [data.id]: data.status }));
+    statusAction.onMessage = data => {
+      setPlayerStatuses(old => ({ ...old, [data.id]: data.status }));
+      if (data.id === "__ai__") setAiPlayerStatus(data.status);
+    };
     voteAction.onMessage = data => {
       if (!host) return;
       votesRef.current[data.id] = data.drawingId;
@@ -264,39 +300,41 @@ export default function Home() {
     if (!isHost || Object.keys(onlineProfiles).length < 2) return;
     const nextWord = WORDS[Math.floor(Math.random() * WORDS.length)];
     const statuses = Object.fromEntries(Object.keys(onlineProfiles).map(id => [id, eliminatedRef.current.includes(id) ? "eliminated" : "drawing"])) as Record<string, PlayerStatus>;
-    setPlayerStatuses(statuses); votesRef.current = {}; setRoundEliminatedId(null);
+    setPlayerStatuses({ ...statuses, "__ai__": "drawing" }); votesRef.current = {}; setRoundEliminatedId(null);
+    setHasSubmitted(false); setHasVoted(false);
     wordRef.current = nextWord; setWord(nextWord); setDrawings([]); setSelected(""); submittedRef.current = {}; setScreen("draw");
     sendControlRef.current?.({ type: "start", word: nextWord, eliminatedIds: eliminatedRef.current });
+    startAiDrawing();
   };
   const leaveOnline = () => {
+    if (aiTimerRef.current !== null) window.clearTimeout(aiTimerRef.current);
+    aiTimerRef.current = null; aiReadyRef.current = false;
     void p2pRoomRef.current?.leave();
     p2pRoomRef.current = null; setIsOnline(false); setIsHost(false); setOnlineProfiles({});
     window.history.replaceState({}, "", window.location.pathname);
     setScreen("home");
   };
   const submitOnlineVote = () => {
-    if (!selected) return;
+    if (!selected || hasVoted) return;
     votesRef.current[selfId] = selected;
-    setAiStatus("다른 플레이어의 투표를 기다리는 중...");
-    setScreen("ai");
+    setHasVoted(true);
     if (isHost) finishOnlineVote();
     else sendVoteRef.current?.({ id: selfId, drawingId: selected });
   };
   const startGame = () => { setWord(WORDS[Math.floor(Math.random() * WORDS.length)]); setDrawings([]); setTurn(0); setSelected(""); setScreen("draw"); };
   const submitHuman = (image: string) => {
     if (isOnline) {
+      if (hasSubmitted) return;
       const mine: Drawing = { id: `human-${selfId}`, author: profile.name, image, isAI: false };
+      setHasSubmitted(true);
       setPlayerStatuses(old => ({ ...old, [selfId]: "done" }));
       sendStatusRef.current?.({ id: selfId, status: "done" });
       if (isHost) {
         submittedRef.current[selfId] = mine;
         setDrawings(Object.values(submittedRef.current));
-        setScreen("ai");
         finishOnlineRound();
       } else {
         sendDrawingRef.current?.(mine);
-        setScreen("ai");
-        setAiStatus("다른 플레이어의 그림을 기다리는 중...");
       }
       return;
     }
@@ -367,17 +405,20 @@ export default function Home() {
     </section>}
     {screen === "draw" && <section className="game-screen">
       <div className="game-top"><div><span className="round">ROUND 01</span><span className="turn">{isOnline ? `${profile.name} 그리는 중` : `플레이어 ${turn + 1} 차례`}</span></div><div className="prompt"><small>오늘의 제시어</small><strong>{word}</strong></div><div className="timer"><small>TIME LEFT</small><strong>∞</strong></div></div>
-      {isOnline && <div className="drawing-statuses">{Object.values(onlineProfiles).map(item => <div key={item.id} className={playerStatuses[item.id] || "drawing"}><span className={`mini-avatar ${item.shape}`} style={{ background: item.color }}>{item.face}</span><strong>{item.name}</strong><i>{playerStatuses[item.id] === "done" ? "제출 완료" : playerStatuses[item.id] === "eliminated" ? "탈락 · 투표만 가능" : "그리는 중..."}</i></div>)}</div>}
+      {isOnline && <div className="drawing-statuses">
+        {Object.values(onlineProfiles).map(item => <div key={item.id} className={playerStatuses[item.id] || "drawing"}><span className={`mini-avatar ${item.shape}`} style={{ background: item.color }}>{item.face}</span><strong>{item.name}</strong><i>{playerStatuses[item.id] === "done" ? "제출 완료" : playerStatuses[item.id] === "eliminated" ? "탈락 · 투표만 가능" : "그리는 중..."}</i></div>)}
+        <div className={aiPlayerStatus}><span className="mini-avatar round ai-avatar">AI</span><strong>MIMIC BOT</strong><i>{aiPlayerStatus === "done" ? "제출 완료" : "그리는 중..."}</i></div>
+      </div>}
       {isOnline && eliminatedIds.includes(selfId)
         ? <div className="eliminated-wait"><span>OUT</span><h2>이번 라운드는<br />그림을 그릴 수 없어요.</h2><p>다른 사람의 그림이 완성되면 투표에 참여할 수 있습니다.</p></div>
-        : <><DrawingBoard key={isOnline ? word : turn} player={isOnline ? profile.name : `플레이어 ${turn + 1}`} onSubmit={submitHuman} /><p className="pass-note">{isOnline ? "친구들도 각자의 화면에서 동시에 그림을 그리고 있습니다." : "그림 제출 후 다음 플레이어에게 화면을 넘겨주세요. 그림은 투표 전까지 비공개입니다."}</p></>}
+        : <><DrawingBoard key={isOnline ? word : turn} player={isOnline ? profile.name : `플레이어 ${turn + 1}`} onSubmit={submitHuman} submitted={isOnline && hasSubmitted} /><p className="pass-note">{isOnline ? "친구들도 각자의 화면에서 동시에 그림을 그리고 있습니다." : "그림 제출 후 다음 플레이어에게 화면을 넘겨주세요. 그림은 투표 전까지 비공개입니다."}</p></>}
     </section>}
     {screen === "ai" && <section className="loading-screen"><div className="scanner"><div className="bot-face">⌁</div><i /></div><div className="eyebrow"><span>03</span> MACHINE AT WORK</div><h2>{aiStatus || "AI가 그림을 그리고 있어요..."}</h2><p>같은 흰 배경, 같은 펜 규칙으로 한 장을 추가합니다.</p></section>}
     {screen === "vote" && <section className="panel vote">
       <div className="section-top"><span>ROUND 01 / VOTE</span><span className="status-pill orange">정체 비공개</span></div>
       <div className="vote-heading"><div><div className="eyebrow"><span>04</span> ELIMINATE A PLAYER</div><h2>사람을<br />죽여주세요.</h2></div><p>게임 안에서 탈락시킬 그림을 한 장 선택하세요.<br />가장 많은 표를 받은 사람은 다음 라운드부터 투표만 할 수 있습니다.</p></div>
-      <div className="gallery">{gallery.map((item, index) => <button key={item.id} className={`art-card ${selected === item.id ? "selected" : ""}`} onClick={() => setSelected(item.id)}><span>DRAWING / 0{index + 1}</span><img src={item.image} alt={`후보 그림 ${index + 1}`} /><b>{selected === item.id ? "선택됨 ✓" : "이 그림에 투표"}</b></button>)}</div>
-      <div className="vote-submit"><span>{selected ? "선택 완료. 이 그림의 주인에게 투표합니다." : "탈락시킬 사람의 그림을 선택하세요."}</span><button className="primary" disabled={!selected} onClick={isOnline ? submitOnlineVote : () => setScreen("result")}>투표 완료 →</button></div>
+      <div className="gallery">{gallery.map((item, index) => <button key={item.id} disabled={isOnline && hasVoted} className={`art-card ${selected === item.id ? "selected" : ""}`} onClick={() => setSelected(item.id)}><span>DRAWING / 0{index + 1}</span><img src={item.image} alt={`후보 그림 ${index + 1}`} /><b>{selected === item.id ? "선택됨 ✓" : "이 그림에 투표"}</b></button>)}</div>
+      <div className="vote-submit"><span>{selected ? "선택 완료. 이 그림의 주인에게 투표합니다." : "탈락시킬 사람의 그림을 선택하세요."}</span><button className="primary" disabled={!selected || (isOnline && hasVoted)} onClick={isOnline ? submitOnlineVote : () => setScreen("result")}>{isOnline && hasVoted ? "투표 완료 ✓" : "투표 완료 →"}</button></div>
     </section>}
     {screen === "result" && picked && <section className="result-screen">
       <div className="result-copy"><div className="eyebrow"><span>05</span> VOTE RESULT</div><h2>{isOnline ? (roundEliminatedId ? <>{onlineProfiles[roundEliminatedId]?.name || "한 사람"}<br /><em>탈락입니다.</em></> : <>이번에는<br /><em>사람이 살았습니다.</em></>) : (fooled ? <>완벽하게<br /><em>속았습니다.</em></> : <>정확하게<br /><em>찾았습니다.</em></>)}</h2><p>{isOnline ? (roundEliminatedId ? "가장 많은 표를 받았습니다. 다음 라운드부터 그림은 그릴 수 없지만 투표에는 계속 참여합니다." : "AI 그림이 가장 많은 표를 받아 사람 플레이어는 탈락하지 않았습니다.") : (fooled ? `${picked.author}의 그림은 사람이 그렸습니다. AI처럼 보이는 데 성공했네요.` : "선택한 그림은 MIMIC BOT이 그린 진짜 AI 그림입니다.")}</p>{!isOnline && <div className="score-row"><div><small>탐정 점수</small><strong>{fooled ? "+0" : "+1"}</strong></div><div><small>인간 위장 보너스</small><strong>{fooled ? "+2" : "+0"}</strong></div></div>}{!isOnline || isHost ? <button className="primary" onClick={isOnline ? startOnlineGame : startGame}>다음 라운드 →</button> : <span className="waiting-host">방장이 다음 라운드를 준비 중...</span>}<button className="text-button" onClick={isOnline ? leaveOnline : () => setScreen("home")}>게임 종료</button></div>
