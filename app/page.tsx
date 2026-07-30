@@ -447,7 +447,7 @@ export default function Home() {
     </header>
     {screen === "profile" && <section className="profile-screen">
       <div className="profile-intro">
-        <div className="eyebrow"><span>00</span> CREATE YOUR HUMAN</div>
+        <div className="eyebrow">CREATE YOUR HUMAN</div>
         <h1>당신은<br /><em>누구인가요?</em></h1>
         <p>게임에서 사용할 이름과 캐릭터를 만드세요.<br />당신은 이제부터 AI 입니다!</p>
       </div>
@@ -466,18 +466,18 @@ export default function Home() {
       </div>
     </section>}
     {screen === "home" && <section className="hero">
-      <div className="eyebrow"><span>01</span> DRAW LIKE A MACHINE</div>
-      <h1>사람인 걸<br /><em>들키지 마.</em></h1>
-      <p className="hero-copy"><strong>{profile.name}</strong>님은 사람입니다. 하지만 오늘만큼은 AI처럼 그리세요.<br />서로의 그림 사이에 숨은 진짜 AI를 찾아내는 드로잉 블러핑 게임.</p>
+      <div className="eyebrow">DRAW LIKE A MACHINE</div>
+      <h1>너<br /><em>누구야.</em></h1>
+      <p className="hero-copy"><strong>{profile.name}</strong>, 당신이 인간이라는 사실은 아무도 몰라야 합니다.<br />망설이는 손끝 하나면 정체가 드러납니다. 기계처럼 그리고, 끝까지 살아남으세요.</p>
       <div className="hero-actions"><button className="primary" onClick={() => setScreen("rooms")}>온라인 플레이 <span>↗</span></button><button className="secondary" onClick={() => { setIsOnline(false); setPlayers(2); startGame(); }}>한 기기 데모</button></div>
       <div className="join-room"><span>친구 방에 참여</span><div><input value={joinCode} maxLength={6} placeholder="초대 코드" onChange={e => setJoinCode(e.target.value.toUpperCase())} onKeyDown={e => { if (e.key === "Enter") connectOnline(false, joinCode); }} /><button onClick={() => connectOnline(false, joinCode)} disabled={joinCode.trim().length < 4}>입장 →</button></div></div>
-      <div className="how-grid"><article><b>01</b><strong>같은 제시어</strong><p>모두에게 하나의 기묘한 제시어가 공개됩니다.</p></article><article><b>02</b><strong>사람처럼? AI처럼!</strong><p>색과 굵기만으로 AI 같은 그림을 완성하세요.</p></article><article><b>03</b><strong>속이고 찾아내기</strong><p>진짜 AI 그림에 투표하고 정체를 공개합니다.</p></article></div>
+      <div className="how-grid"><article><strong>같은 제시어</strong><p>모두에게 하나의 기묘한 제시어가 공개됩니다.</p></article><article><strong>사람처럼? AI처럼!</strong><p>색과 굵기만으로 AI 같은 그림을 완성하세요.</p></article><article><strong>속이고 찾아내기</strong><p>진짜 AI 그림에 투표하고 정체를 공개합니다.</p></article></div>
       <div className="hero-orbit" aria-hidden="true"><span>HUMAN?</span><span>AI?</span><i /></div>
     </section>}
     {screen === "rooms" && <section className="panel room-browser">
       <div className="section-top"><span>PUBLIC ROOM BOARD</span><span className="status-pill">실시간 탐색 중</span></div>
       <div className="room-browser-head">
-        <div><div className="eyebrow"><span>02</span> PLAY WITH OTHERS</div><h2>함께 그릴<br /><em>사람을 찾으세요.</em></h2><p>방을 만들면 지금 접속 중인 다른 사람의 게시판에 나타납니다.</p></div>
+        <div><div className="eyebrow">PLAY WITH OTHERS</div><h2>함께 그릴<br /><em>사람을 찾으세요.</em></h2><p>방을 만들면 지금 접속 중인 다른 사람의 게시판에 나타납니다.</p></div>
         <div className="room-create-card">
           <label><span>방 이름</span><input maxLength={20} value={roomName} onChange={e => setRoomName(e.target.value)} placeholder={`${profile.name}의 방`} /></label>
           <div className="visibility-tabs"><button className={roomVisibility === "public" ? "active" : ""} onClick={() => setRoomVisibility("public")}>공개 방</button><button className={roomVisibility === "private" ? "active" : ""} onClick={() => setRoomVisibility("private")}>비공개 방</button></div>
@@ -497,7 +497,7 @@ export default function Home() {
     </section>}
     {screen === "lobby" && <section className="panel lobby">
       <div className="section-top"><span>ROOM / {roomCode}</span><span className="status-pill">{connectionText}</span></div>
-      <div className="lobby-title"><div><div className="eyebrow"><span>02</span> ASSEMBLE HUMANS</div><h2>들키지 않을<br />사람을 모으세요.</h2></div><div className="room-card"><span>초대 코드</span><strong>{roomCode}</strong><button onClick={() => { navigator.clipboard?.writeText(`${location.origin}${location.pathname}?room=${roomCode}`); setCopied(true); }}>{copied ? "초대 링크 복사 완료 ✓" : "초대 링크 복사"}</button></div></div>
+      <div className="lobby-title"><div><div className="eyebrow">ASSEMBLE HUMANS</div><h2>들키지 않을<br />사람을 모으세요.</h2></div><div className="room-card"><span>초대 코드</span><strong>{roomCode}</strong><button onClick={() => { navigator.clipboard?.writeText(`${location.origin}${location.pathname}?room=${roomCode}`); setCopied(true); }}>{copied ? "초대 링크 복사 완료 ✓" : "초대 링크 복사"}</button></div></div>
       <div className="players">{Object.values(onlineProfiles).map((item, index) => <div className="player-card" key={item.id}><span className={`mini-avatar ${item.shape}`} style={{ background: item.color }}>{item.face}</span><div><strong>{item.name}</strong><small>{item.host ? "방장" : "게스트"} · 실시간 접속</small></div><i>READY</i></div>)}{Object.keys(onlineProfiles).length < 2 && <div className="add-player">초대 링크를 친구에게 보내세요</div>}</div>
       <div className="lobby-footer"><p>{Object.keys(onlineProfiles).length}명 접속 · 최소 2명 · 최대 4명</p>{isHost ? <button className="primary" disabled={Object.keys(onlineProfiles).length < 2} onClick={startOnlineGame}>게임 시작 →</button> : <span className="waiting-host">방장이 시작하기를 기다리는 중...</span>}</div>
     </section>}
@@ -511,15 +511,15 @@ export default function Home() {
         ? <div className="eliminated-wait"><span>OUT</span><h2>이번 라운드는<br />그림을 그릴 수 없어요.</h2><p>다른 사람의 그림이 완성되면 투표에 참여할 수 있습니다.</p></div>
         : <><DrawingBoard key={isOnline ? word : turn} player={isOnline ? profile.name : `플레이어 ${turn + 1}`} onSubmit={submitHuman} submitted={isOnline && hasSubmitted} /><p className="pass-note">{isOnline ? "친구들도 각자의 화면에서 동시에 그림을 그리고 있습니다." : "그림 제출 후 다음 플레이어에게 화면을 넘겨주세요. 그림은 투표 전까지 비공개입니다."}</p></>}
     </section>}
-    {screen === "ai" && <section className="loading-screen"><div className="scanner"><div className="bot-face">⌁</div><i /></div><div className="eyebrow"><span>03</span> MACHINE AT WORK</div><h2>{aiStatus || "AI가 그림을 그리고 있어요..."}</h2><p>같은 흰 배경, 같은 펜 규칙으로 한 장을 추가합니다.</p></section>}
+    {screen === "ai" && <section className="loading-screen"><div className="scanner"><div className="bot-face">⌁</div><i /></div><div className="eyebrow">MACHINE AT WORK</div><h2>{aiStatus || "AI가 그림을 그리고 있어요..."}</h2><p>같은 흰 배경, 같은 펜 규칙으로 한 장을 추가합니다.</p></section>}
     {screen === "vote" && <section className="panel vote">
       <div className="section-top"><span>ROUND 01 / VOTE</span><span className="status-pill orange">정체 비공개</span></div>
-      <div className="vote-heading"><div><div className="eyebrow"><span>04</span> ELIMINATE A PLAYER</div><h2>사람을<br />죽여주세요.</h2></div><p>게임 안에서 탈락시킬 그림을 한 장 선택하세요.<br />가장 많은 표를 받은 사람은 다음 라운드부터 투표만 할 수 있습니다.</p></div>
+      <div className="vote-heading"><div><div className="eyebrow">ELIMINATE A PLAYER</div><h2>사람을<br />죽여주세요.</h2></div><p>게임 안에서 탈락시킬 그림을 한 장 선택하세요.<br />가장 많은 표를 받은 사람은 다음 라운드부터 투표만 할 수 있습니다.</p></div>
       <div className="gallery">{gallery.map((item, index) => <button key={item.id} disabled={isOnline && hasVoted} className={`art-card ${selected === item.id ? "selected" : ""}`} onClick={() => setSelected(item.id)}><span>DRAWING / 0{index + 1}</span><img src={item.image} alt={`후보 그림 ${index + 1}`} /><b>{selected === item.id ? "선택됨 ✓" : "이 그림에 투표"}</b></button>)}</div>
       <div className="vote-submit"><span>{selected ? "선택 완료. 이 그림의 주인에게 투표합니다." : "탈락시킬 사람의 그림을 선택하세요."}</span><button className="primary" disabled={!selected || (isOnline && hasVoted)} onClick={isOnline ? submitOnlineVote : () => setScreen("result")}>{isOnline && hasVoted ? "투표 완료 ✓" : "투표 완료 →"}</button></div>
     </section>}
     {screen === "result" && picked && <section className="result-screen">
-      <div className="result-copy"><div className="eyebrow"><span>05</span> VOTE RESULT</div><h2>{isOnline ? (roundEliminatedId ? <>{onlineProfiles[roundEliminatedId]?.name || "한 사람"}<br /><em>탈락입니다.</em></> : <>이번에는<br /><em>사람이 살았습니다.</em></>) : (fooled ? <>완벽하게<br /><em>속았습니다.</em></> : <>정확하게<br /><em>찾았습니다.</em></>)}</h2><p>{isOnline ? (roundEliminatedId ? "가장 많은 표를 받았습니다. 다음 라운드부터 그림은 그릴 수 없지만 투표에는 계속 참여합니다." : "AI 그림이 가장 많은 표를 받아 사람 플레이어는 탈락하지 않았습니다.") : (fooled ? `${picked.author}의 그림은 사람이 그렸습니다. AI처럼 보이는 데 성공했네요.` : "선택한 그림은 MIMIC BOT이 그린 진짜 AI 그림입니다.")}</p>{!isOnline && <div className="score-row"><div><small>탐정 점수</small><strong>{fooled ? "+0" : "+1"}</strong></div><div><small>인간 위장 보너스</small><strong>{fooled ? "+2" : "+0"}</strong></div></div>}{!isOnline || isHost ? <button className="primary" onClick={isOnline ? startOnlineGame : startGame}>다음 라운드 →</button> : <span className="waiting-host">방장이 다음 라운드를 준비 중...</span>}<button className="text-button" onClick={isOnline ? leaveOnline : () => setScreen("home")}>게임 종료</button></div>
+      <div className="result-copy"><div className="eyebrow">VOTE RESULT</div><h2>{isOnline ? (roundEliminatedId ? <>{onlineProfiles[roundEliminatedId]?.name || "한 사람"}<br /><em>탈락입니다.</em></> : <>이번에는<br /><em>사람이 살았습니다.</em></>) : (fooled ? <>완벽하게<br /><em>속았습니다.</em></> : <>정확하게<br /><em>찾았습니다.</em></>)}</h2><p>{isOnline ? (roundEliminatedId ? "가장 많은 표를 받았습니다. 다음 라운드부터 그림은 그릴 수 없지만 투표에는 계속 참여합니다." : "AI 그림이 가장 많은 표를 받아 사람 플레이어는 탈락하지 않았습니다.") : (fooled ? `${picked.author}의 그림은 사람이 그렸습니다. AI처럼 보이는 데 성공했네요.` : "선택한 그림은 MIMIC BOT이 그린 진짜 AI 그림입니다.")}</p>{!isOnline && <div className="score-row"><div><small>탐정 점수</small><strong>{fooled ? "+0" : "+1"}</strong></div><div><small>인간 위장 보너스</small><strong>{fooled ? "+2" : "+0"}</strong></div></div>}{!isOnline || isHost ? <button className="primary" onClick={isOnline ? startOnlineGame : startGame}>다음 라운드 →</button> : <span className="waiting-host">방장이 다음 라운드를 준비 중...</span>}<button className="text-button" onClick={isOnline ? leaveOnline : () => setScreen("home")}>게임 종료</button></div>
       <div className="reveal-stack">{drawings.map(item => <article key={item.id} className={item.id === selected ? "picked" : ""}><img src={item.image} alt={`${item.author}의 그림`} /><div><span>{item.isAI ? "AI" : "HUMAN"}</span><strong>{item.author}</strong>{item.id === selected && <b>YOUR PICK</b>}</div></article>)}</div>
     </section>}
     <footer><span>MIMIC.AI / 2026</span></footer>
