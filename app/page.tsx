@@ -8,6 +8,7 @@ type Drawing = { id: string; author: string; image: string; isAI: boolean };
 type Profile = { name: string; color: string; face: string; shape: string };
 type OnlineProfile = Profile & { id: string; host?: boolean };
 type PublicRoom = { code: string; name: string; hostName: string; players: number; visibility: "public" | "private"; passwordHash?: string; updatedAt: number };
+type RoomMeta = { name: string; visibility: "public" | "private" };
 type ControlMessage =
   | { type: "start"; word: string; eliminatedIds: string[] }
   | { type: "gallery"; drawings: Drawing[]; voteEndsAt: number }
@@ -141,6 +142,7 @@ export default function Home() {
   const [onlineProfiles, setOnlineProfiles] = useState<Record<string, OnlineProfile>>({});
   const [publicRooms, setPublicRooms] = useState<Record<string, PublicRoom>>({});
   const [roomName, setRoomName] = useState("");
+  const [currentRoomName, setCurrentRoomName] = useState("");
   const [roomVisibility, setRoomVisibility] = useState<"public" | "private">("public");
   const [roomPassword, setRoomPassword] = useState("");
   const [passwordAttempts, setPasswordAttempts] = useState<Record<string, string>>({});
@@ -179,6 +181,7 @@ export default function Home() {
   const voteTimerRef = useRef<number | null>(null);
   const finishOnlineVoteRef = useRef<() => void>(() => {});
   const sendProfileRef = useRef<((data: OnlineProfile, options?: { target?: string }) => Promise<void>) | null>(null);
+  const sendRoomMetaRef = useRef<((data: RoomMeta, options?: { target?: string }) => Promise<void>) | null>(null);
   const sendControlRef = useRef<((data: ControlMessage, options?: { target?: string }) => Promise<void>) | null>(null);
   const sendDrawingRef = useRef<((data: Drawing, options?: { target?: string }) => Promise<void>) | null>(null);
   const sendStatusRef = useRef<((data: { id: string; status: PlayerStatus }, options?: { target?: string }) => Promise<void>) | null>(null);
@@ -272,6 +275,7 @@ export default function Home() {
       visibility: roomVisibility,
       passwordHash: roomVisibility === "private" ? hashPassword(roomPassword) : undefined
     };
+    setCurrentRoomName(hostedRoomRef.current.name);
     connectOnline(true);
   };
   const joinListedRoom = (room: PublicRoom) => {
@@ -345,11 +349,13 @@ export default function Home() {
     const p2pRoom = joinRoom({ appId: "mimic-ai-game-2026-v1" }, code);
     p2pRoomRef.current = p2pRoom;
     const profileAction = p2pRoom.makeAction<OnlineProfile>("profile");
+    const roomMetaAction = p2pRoom.makeAction<RoomMeta>("room-meta");
     const controlAction = p2pRoom.makeAction<ControlMessage>("control");
     const drawingAction = p2pRoom.makeAction<Drawing>("drawing");
     const statusAction = p2pRoom.makeAction<{ id: string; status: PlayerStatus }>("status");
     const voteAction = p2pRoom.makeAction<{ id: string; drawingId: string }>("vote");
     sendProfileRef.current = profileAction.send;
+    sendRoomMetaRef.current = roomMetaAction.send;
     sendControlRef.current = controlAction.send;
     sendDrawingRef.current = drawingAction.send;
     sendStatusRef.current = statusAction.send;
@@ -362,6 +368,7 @@ export default function Home() {
       });
       setConnectionText("실시간 연결됨");
     };
+    roomMetaAction.onMessage = data => setCurrentRoomName(data.name);
     controlAction.onMessage = data => {
       if (data.type === "start") {
         voteGateOpenRef.current = false; setVoteDeadline(0);
@@ -396,6 +403,7 @@ export default function Home() {
     };
     p2pRoom.onPeerJoin = peerId => {
       profileAction.send(mine, { target: peerId });
+      if (isHostRef.current) roomMetaAction.send({ name: hostedRoomRef.current.name || `${profileRef.current.name}의 방`, visibility: hostedRoomRef.current.visibility }, { target: peerId });
       setConnectionText("실시간 연결됨");
     };
     p2pRoom.onPeerLeave = peerId => {
@@ -542,8 +550,8 @@ export default function Home() {
       <div className="direct-join"><div><input value={joinCode} maxLength={6} placeholder="ROOM CODE" onChange={e => setJoinCode(e.target.value.toUpperCase())} onKeyDown={e => { if (e.key === "Enter") connectOnline(false, joinCode); }} /><button onClick={() => connectOnline(false, joinCode)} disabled={joinCode.trim().length < 4}>입장 →</button></div></div>
     </section>}
     {screen === "lobby" && <section className="panel lobby">
-      <div className="lobby-title"><div><div className="eyebrow">ASSEMBLE HUMANS</div><h2 className="lobby-line">서로를 의심할 사람을 모으세요.</h2></div><div className="room-card"><span>초대 코드</span><strong>{roomCode}</strong><button onClick={() => { navigator.clipboard?.writeText(`${location.origin}${location.pathname}?room=${roomCode}`); setCopied(true); }}>{copied ? "초대 링크 복사 완료 ✓" : "초대 링크 복사"}</button></div></div>
-      <div className="players">{Object.values(onlineProfiles).map((item, index) => <div className="player-card" key={item.id}><span className={`mini-avatar ${item.shape}`} style={{ background: item.color }}>{item.face}</span><div><strong>{item.name}</strong><small>{item.host ? "방장" : "게스트"} · 실시간 접속</small></div><i>READY</i></div>)}{Object.keys(onlineProfiles).length < 2 && <div className="add-player">초대 +</div>}</div>
+      <div className="lobby-title"><div><h2 className="room-name-heading">{currentRoomName || `${Object.values(onlineProfiles).find(item => item.host)?.name || profile.name}의 방`}</h2><div className="eyebrow">ASSEMBLE HUMANS</div></div><div className="room-card"><span>초대 코드</span><strong>{roomCode}</strong><button onClick={() => { navigator.clipboard?.writeText(`${location.origin}${location.pathname}?room=${roomCode}`); setCopied(true); }}>{copied ? "초대 링크 복사 완료 ✓" : "초대 링크 복사"}</button></div></div>
+      <div className="players">{Object.values(onlineProfiles).map((item, index) => <div className="player-card" key={item.id}><span className={`mini-avatar ${item.shape}`} style={{ background: item.color }}>{item.face}</span><div><strong>{item.name}</strong><small>{item.host ? "방장" : "게스트"} · 실시간 접속</small></div><i>READY</i></div>)}{Object.keys(onlineProfiles).length < 2 && <button className="add-player" onClick={() => { navigator.clipboard?.writeText(`${location.origin}${location.pathname}?room=${roomCode}`); setCopied(true); }}>{copied ? "복사 완료 ✓" : "초대 +"}</button>}</div>
       <div className="lobby-footer"><p>{Object.keys(onlineProfiles).length}명 접속 · 최소 2명 · 최대 4명</p>{isHost ? <button className="primary" disabled={Object.keys(onlineProfiles).length < 2} onClick={startOnlineGame}>게임 시작 →</button> : <span className="waiting-host">방장이 시작하기를 기다리는 중...</span>}</div>
     </section>}
     {screen === "draw" && <section className="game-screen">
