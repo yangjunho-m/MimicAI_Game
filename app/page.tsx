@@ -9,7 +9,7 @@ type Drawing = { id: string; author: string; image: string; isAI: boolean };
 type Profile = { name: string; color: string; face: string; shape: string };
 type OnlineProfile = Profile & { id: string; host?: boolean };
 type PublicRoom = { code: string; name: string; hostName: string; players: number; visibility: "public" | "private"; passwordHash?: string; updatedAt: number };
-type RoomMeta = { name: string; visibility: "public" | "private" };
+type RoomMeta = { name: string; visibility: "public" | "private"; aiCount: number };
 type ControlMessage =
   | { type: "start"; word: string; eliminatedIds: string[] }
   | { type: "gallery"; drawings: Drawing[]; voteEndsAt: number }
@@ -144,6 +144,7 @@ export default function Home() {
   const [publicRooms, setPublicRooms] = useState<Record<string, PublicRoom>>({});
   const [roomName, setRoomName] = useState("");
   const [currentRoomName, setCurrentRoomName] = useState("");
+  const [aiCount, setAiCount] = useState(1);
   const [roomVisibility, setRoomVisibility] = useState<"public" | "private">("public");
   const [roomPassword, setRoomPassword] = useState("");
   const [passwordAttempts, setPasswordAttempts] = useState<Record<string, string>>({});
@@ -179,6 +180,9 @@ export default function Home() {
   const votesRef = useRef<Record<string, string>>({});
   const aiReadyRef = useRef(false);
   const aiTimerRef = useRef<number | null>(null);
+  const aiTimersRef = useRef<number[]>([]);
+  const aiReadyCountRef = useRef(0);
+  const aiCountRef = useRef(1);
   const voteGateOpenRef = useRef(false);
   const voteTimerRef = useRef<number | null>(null);
   const finishOnlineVoteRef = useRef<() => void>(() => {});
@@ -193,6 +197,7 @@ export default function Home() {
   useEffect(() => { profilesRef.current = onlineProfiles; }, [onlineProfiles]);
   useEffect(() => { eliminatedRef.current = eliminatedIds; }, [eliminatedIds]);
   useEffect(() => { isHostRef.current = isHost; }, [isHost]);
+  useEffect(() => { aiCountRef.current = aiCount; }, [aiCount]);
   useEffect(() => {
     if (!voteDeadline) return;
     const update = () => setVoteSeconds(Math.max(0, Math.ceil((voteDeadline - Date.now()) / 1000)));
@@ -202,6 +207,7 @@ export default function Home() {
   }, [voteDeadline]);
   useEffect(() => () => {
     if (aiTimerRef.current !== null) window.clearTimeout(aiTimerRef.current);
+    aiTimersRef.current.forEach(timer => window.clearTimeout(timer));
     if (voteTimerRef.current !== null) window.clearTimeout(voteTimerRef.current);
     void directoryRoomRef.current?.leave();
     void p2pRoomRef.current?.leave();
@@ -330,9 +336,12 @@ export default function Home() {
   const finishOnlineRound = useCallback(() => {
     const humanDrawings = Object.values(submittedRef.current);
     const activeCount = Object.keys(profilesRef.current).filter(id => !eliminatedRef.current.includes(id)).length;
-    if (humanDrawings.length < activeCount || !aiReadyRef.current) return;
-    const aiDrawing: Drawing = { id: `ai-${Date.now()}`, author: "MIMIC BOT", image: pseudoAiSketch(wordRef.current), isAI: true };
-    const complete = [...humanDrawings, aiDrawing];
+    if (humanDrawings.length < activeCount || aiReadyCountRef.current < aiCountRef.current) return;
+    const aiDrawings: Drawing[] = Array.from({ length: aiCountRef.current }, (_, index) => ({
+      id: `ai-${index}-${Date.now()}`, author: `MIMIC BOT ${index + 1}`,
+      image: pseudoAiSketch(wordRef.current), isAI: true
+    }));
+    const complete = [...humanDrawings, ...aiDrawings];
     const voteEndsAt = Date.now() + 10000;
     voteGateOpenRef.current = false;
     setDrawings(complete);
@@ -349,17 +358,26 @@ export default function Home() {
   }, []);
   const startAiDrawing = useCallback(() => {
     if (aiTimerRef.current !== null) window.clearTimeout(aiTimerRef.current);
+    aiTimersRef.current.forEach(timer => window.clearTimeout(timer));
+    aiTimersRef.current = [];
     aiReadyRef.current = false;
+    aiReadyCountRef.current = 0;
     setAiPlayerStatus("drawing");
-    setPlayerStatuses(old => ({ ...old, "__ai__": "drawing" }));
-    sendStatusRef.current?.({ id: "__ai__", status: "drawing" });
-    aiTimerRef.current = window.setTimeout(() => {
-      aiReadyRef.current = true;
-      setAiPlayerStatus("done");
-      setPlayerStatuses(old => ({ ...old, "__ai__": "done" }));
-      sendStatusRef.current?.({ id: "__ai__", status: "done" });
-      finishOnlineRound();
-    }, 3000 + Math.floor(Math.random() * 4000));
+    const aiStatuses = Object.fromEntries(Array.from({ length: aiCountRef.current }, (_, index) => [`__ai_${index}`, "drawing"])) as Record<string, PlayerStatus>;
+    setPlayerStatuses(old => ({ ...old, ...aiStatuses }));
+    Array.from({ length: aiCountRef.current }, (_, index) => {
+      sendStatusRef.current?.({ id: `__ai_${index}`, status: "drawing" });
+      const timer = window.setTimeout(() => {
+        aiReadyCountRef.current += 1;
+        const allDone = aiReadyCountRef.current >= aiCountRef.current;
+        aiReadyRef.current = allDone;
+        if (allDone) setAiPlayerStatus("done");
+        setPlayerStatuses(old => ({ ...old, [`__ai_${index}`]: "done" }));
+        sendStatusRef.current?.({ id: `__ai_${index}`, status: "done" });
+        finishOnlineRound();
+      }, 3000 + Math.floor(Math.random() * 4000));
+      aiTimersRef.current.push(timer);
+    });
   }, [finishOnlineRound]);
   const finishOnlineVote = useCallback(() => {
     if (!voteGateOpenRef.current || Object.keys(votesRef.current).length < Object.keys(profilesRef.current).length) return;
@@ -410,14 +428,19 @@ export default function Home() {
       });
       setConnectionText("실시간 연결됨");
     };
-    roomMetaAction.onMessage = data => setCurrentRoomName(data.name);
+    roomMetaAction.onMessage = data => {
+      setCurrentRoomName(data.name);
+      setAiCount(data.aiCount || 1);
+      aiCountRef.current = data.aiCount || 1;
+    };
     controlAction.onMessage = data => {
       if (data.type === "start") {
         voteGateOpenRef.current = false; setVoteDeadline(0);
         eliminatedRef.current = data.eliminatedIds; setEliminatedIds(data.eliminatedIds);
         const statuses = Object.fromEntries(Object.keys(profilesRef.current).map(id => [id, data.eliminatedIds.includes(id) ? "eliminated" : "drawing"])) as Record<string, PlayerStatus>;
-        setPlayerStatuses({ ...statuses, "__ai__": "drawing" }); votesRef.current = {}; setRoundEliminatedId(null);
-        aiReadyRef.current = false; setAiPlayerStatus("drawing"); setHasSubmitted(false); setHasVoted(false);
+        const aiStatuses = Object.fromEntries(Array.from({ length: aiCountRef.current }, (_, index) => [`__ai_${index}`, "drawing"])) as Record<string, PlayerStatus>;
+        setPlayerStatuses({ ...statuses, ...aiStatuses }); votesRef.current = {}; setRoundEliminatedId(null);
+        aiReadyRef.current = false; aiReadyCountRef.current = 0; setAiPlayerStatus("drawing"); setHasSubmitted(false); setHasVoted(false);
         wordRef.current = data.word; setWord(data.word); setDrawings([]); setSelected(""); submittedRef.current = {}; setScreen("draw");
       } else if (data.type === "gallery") {
         setDrawings(data.drawings); setAiStatus("모든 그림이 도착했습니다!"); setHasVoted(false); setVoteDeadline(data.voteEndsAt); setScreen("vote");
@@ -436,7 +459,14 @@ export default function Home() {
     };
     statusAction.onMessage = data => {
       setPlayerStatuses(old => ({ ...old, [data.id]: data.status }));
-      if (data.id === "__ai__") setAiPlayerStatus(data.status);
+      if (data.id.startsWith("__ai_") && data.status === "done") {
+        setPlayerStatuses(old => {
+          const next = { ...old, [data.id]: data.status };
+          const allDone = Array.from({ length: aiCountRef.current }, (_, index) => next[`__ai_${index}`] === "done").every(Boolean);
+          if (allDone) setAiPlayerStatus("done");
+          return next;
+        });
+      }
     };
     voteAction.onMessage = data => {
       if (!isHostRef.current) return;
@@ -445,7 +475,7 @@ export default function Home() {
     };
     p2pRoom.onPeerJoin = peerId => {
       profileAction.send(mine, { target: peerId });
-      if (isHostRef.current) roomMetaAction.send({ name: hostedRoomRef.current.name || `${profileRef.current.name}의 방`, visibility: hostedRoomRef.current.visibility }, { target: peerId });
+      if (isHostRef.current) roomMetaAction.send({ name: hostedRoomRef.current.name || `${profileRef.current.name}의 방`, visibility: hostedRoomRef.current.visibility, aiCount: aiCountRef.current }, { target: peerId });
       setConnectionText("실시간 연결됨");
     };
     p2pRoom.onPeerLeave = peerId => {
@@ -471,11 +501,21 @@ export default function Home() {
     const statuses = Object.fromEntries(Object.keys(onlineProfiles).map(id => [id, eliminatedRef.current.includes(id) ? "eliminated" : "drawing"])) as Record<string, PlayerStatus>;
     voteGateOpenRef.current = false; setVoteDeadline(0);
     if (voteTimerRef.current !== null) window.clearTimeout(voteTimerRef.current);
-    setPlayerStatuses({ ...statuses, "__ai__": "drawing" }); votesRef.current = {}; setRoundEliminatedId(null);
+    const aiStatuses = Object.fromEntries(Array.from({ length: aiCountRef.current }, (_, index) => [`__ai_${index}`, "drawing"])) as Record<string, PlayerStatus>;
+    setPlayerStatuses({ ...statuses, ...aiStatuses }); votesRef.current = {}; setRoundEliminatedId(null);
     setHasSubmitted(false); setHasVoted(false);
     wordRef.current = nextWord; setWord(nextWord); setDrawings([]); setSelected(""); submittedRef.current = {}; setScreen("draw");
     sendControlRef.current?.({ type: "start", word: nextWord, eliminatedIds: eliminatedRef.current });
     startAiDrawing();
+  };
+  const chooseAiCount = (count: number) => {
+    if (!isHost) return;
+    setAiCount(count); aiCountRef.current = count;
+    sendRoomMetaRef.current?.({
+      name: currentRoomName || hostedRoomRef.current.name || `${profileRef.current.name}의 방`,
+      visibility: hostedRoomRef.current.visibility,
+      aiCount: count
+    });
   };
   const leaveOnline = () => {
     if (isHostRef.current && isSupabaseConfigured && hostTokenRef.current) {
@@ -597,14 +637,15 @@ export default function Home() {
     </section>}
     {screen === "lobby" && <section className="panel lobby">
       <div className="lobby-title"><div><h2 className="room-name-heading">{currentRoomName || `${Object.values(onlineProfiles).find(item => item.host)?.name || profile.name}의 방`}</h2><div className="eyebrow">ASSEMBLE HUMANS</div></div><div className="room-card"><span>초대 코드</span><strong>{roomCode}</strong><button onClick={() => { navigator.clipboard?.writeText(`${location.origin}${location.pathname}?room=${roomCode}`); setCopied(true); }}>{copied ? "초대 링크 복사 완료 ✓" : "초대 링크 복사"}</button></div></div>
-      <div className="players">{Object.values(onlineProfiles).map((item, index) => <div className="player-card" key={item.id}><span className={`mini-avatar ${item.shape}`} style={{ background: item.color }}>{item.face}</span><div><strong>{item.name}</strong><small>{item.host ? "방장" : "게스트"} · 실시간 접속</small></div><i>READY</i></div>)}{Object.keys(onlineProfiles).length < 2 && <button className="add-player" onClick={() => { navigator.clipboard?.writeText(`${location.origin}${location.pathname}?room=${roomCode}`); setCopied(true); }}>{copied ? "복사 완료 ✓" : "초대 +"}</button>}</div>
+      <div className="ai-count-control"><span>AI 참가자</span><div>{[1, 2, 3].map(count => <button key={count} className={aiCount === count ? "active" : ""} disabled={!isHost} onClick={() => chooseAiCount(count)}>{count}명</button>)}</div><small>{isHost ? "방장이 AI 수를 선택합니다." : `방장이 AI ${aiCount}명으로 설정했습니다.`}</small></div>
+      <div className="players">{Object.values(onlineProfiles).sort((a, b) => Number(Boolean(b.host)) - Number(Boolean(a.host))).map(item => <div className="player-card" key={item.id}><span className={`mini-avatar ${item.shape}`} style={{ background: item.color }}>{item.face}</span><div><strong>{item.name}</strong><small>{item.host ? "방장" : "게스트"} · 실시간 접속</small></div><i>READY</i></div>)}{Object.keys(onlineProfiles).length < 2 && <button className="add-player" onClick={() => { navigator.clipboard?.writeText(`${location.origin}${location.pathname}?room=${roomCode}`); setCopied(true); }}>{copied ? "복사 완료 ✓" : "초대 +"}</button>}</div>
       <div className="lobby-footer"><p>{Object.keys(onlineProfiles).length}명 접속 · 최소 2명 · 최대 4명</p>{isHost ? <button className="primary" disabled={Object.keys(onlineProfiles).length < 2} onClick={startOnlineGame}>게임 시작 →</button> : <span className="waiting-host">방장이 시작하기를 기다리는 중...</span>}</div>
     </section>}
     {screen === "draw" && <section className="game-screen">
       <div className="game-top"><div><span className="round">ROUND 01</span><span className="turn">{isOnline ? `${profile.name} 그리는 중` : `플레이어 ${turn + 1} 차례`}</span></div><div className="prompt"><small>오늘의 제시어</small><strong>{word}</strong></div><div className="timer"><small>TIME LEFT</small><strong>∞</strong></div></div>
       {isOnline && <div className="drawing-statuses">
         {Object.values(onlineProfiles).map(item => <div key={item.id} className={playerStatuses[item.id] || "drawing"}><span className={`mini-avatar ${item.shape}`} style={{ background: item.color }}>{item.face}</span><strong>{item.name}</strong><i>{playerStatuses[item.id] === "done" ? "제출 완료" : playerStatuses[item.id] === "eliminated" ? "탈락 · 투표만 가능" : "그리는 중..."}</i></div>)}
-        <div className={aiPlayerStatus}><span className="mini-avatar round ai-avatar">AI</span><strong>MIMIC BOT</strong><i>{aiPlayerStatus === "done" ? "제출 완료" : "그리는 중..."}</i></div>
+        {Array.from({ length: aiCount }, (_, index) => <div key={`ai-status-${index}`} className={playerStatuses[`__ai_${index}`] || "drawing"}><span className="mini-avatar round ai-avatar">AI</span><strong>MIMIC BOT {index + 1}</strong><i>{playerStatuses[`__ai_${index}`] === "done" ? "제출 완료" : "그리는 중..."}</i></div>)}
       </div>}
       {isOnline && eliminatedIds.includes(selfId)
         ? <div className="eliminated-wait"><span>OUT</span><h2>이번 라운드는<br />그림을 그릴 수 없어요.</h2><p>다른 사람의 그림이 완성되면 투표에 참여할 수 있습니다.</p></div>
