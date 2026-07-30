@@ -489,7 +489,6 @@ export default function Home() {
       <div className="hero-orbit" aria-hidden="true"><span>HUMAN?</span><span>AI?</span><i /></div>
     </section>}
     {screen === "rooms" && <section className="panel room-browser">
-      <div className="section-top"><span>PUBLIC ROOM BOARD</span><span className="status-pill">실시간 탐색 중</span></div>
       <div className="room-browser-head">
         <div><div className="eyebrow">PLAY WITH OTHERS</div><h2>함께 그릴<br /><em>사람을 찾으세요.</em></h2><p>방을 만들면 지금 접속 중인 다른 사람의 게시판에 나타납니다.</p></div>
         <div className="room-create-card">
@@ -500,18 +499,18 @@ export default function Home() {
         </div>
       </div>
       <div className="room-board">
-        <div className="room-board-title"><strong>열린 방</strong><button className={isRefreshingRooms ? "refreshing" : ""} onClick={() => { setPublicRooms({}); setIsRefreshingRooms(true); setRoomRefreshKey(key => key + 1); }} disabled={isRefreshingRooms}>{isRefreshingRooms ? "찾는 중..." : "방 목록 새로고침 ↻"}</button></div>
+        <div className="room-board-title"><strong>열린 방</strong><button aria-label="방 목록 새로고침" className={isRefreshingRooms ? "refreshing" : ""} onClick={() => { setPublicRooms({}); setIsRefreshingRooms(true); setRoomRefreshKey(key => key + 1); }} disabled={isRefreshingRooms}>↻</button></div>
         {Object.values(publicRooms).length > 0 ? Object.values(publicRooms).sort((a, b) => b.updatedAt - a.updatedAt).map(room => <article key={room.code} className={`public-room-row ${room.visibility}`}>
           <span className="room-live-dot" /><div className="room-row-info"><strong>{room.visibility === "private" ? "🔒 " : ""}{room.name}</strong><small>{room.hostName} · ROOM / {room.code}</small></div><b>{room.players} / 4명</b>
           {room.visibility === "private" && <input className={passwordErrors[room.code] ? "wrong" : ""} type="password" placeholder={passwordErrors[room.code] ? "비밀번호가 달라요" : "비밀번호"} value={passwordAttempts[room.code] || ""} onChange={e => { setPasswordAttempts(old => ({ ...old, [room.code]: e.target.value })); setPasswordErrors(old => ({ ...old, [room.code]: false })); }} onKeyDown={e => { if (e.key === "Enter") joinListedRoom(room); }} />}
           <button onClick={() => joinListedRoom(room)} disabled={room.players >= 4}>참가하기 →</button>
         </article>) : <div className="empty-rooms"><strong>아직 열린 방이 없습니다.</strong><p>첫 공개 방을 만들면 다른 접속자들이 바로 참가할 수 있어요.</p></div>}
       </div>
-      <div className="direct-join"><span>초대 코드로 바로 참가</span><div><input value={joinCode} maxLength={6} placeholder="ROOM CODE" onChange={e => setJoinCode(e.target.value.toUpperCase())} onKeyDown={e => { if (e.key === "Enter") connectOnline(false, joinCode); }} /><button onClick={() => connectOnline(false, joinCode)} disabled={joinCode.trim().length < 4}>입장 →</button></div></div>
+      <div className="direct-join"><div><input value={joinCode} maxLength={6} placeholder="ROOM CODE" onChange={e => setJoinCode(e.target.value.toUpperCase())} onKeyDown={e => { if (e.key === "Enter") connectOnline(false, joinCode); }} /><button onClick={() => connectOnline(false, joinCode)} disabled={joinCode.trim().length < 4}>입장 →</button></div></div>
     </section>}
     {screen === "lobby" && <section className="panel lobby">
       <div className="section-top"><span>ROOM / {roomCode}</span><span className="status-pill">{connectionText}</span></div>
-      <div className="lobby-title"><div><div className="eyebrow">ASSEMBLE HUMANS</div><h2>들키지 않을<br />사람을 모으세요.</h2></div><div className="room-card"><span>초대 코드</span><strong>{roomCode}</strong><button onClick={() => { navigator.clipboard?.writeText(`${location.origin}${location.pathname}?room=${roomCode}`); setCopied(true); }}>{copied ? "초대 링크 복사 완료 ✓" : "초대 링크 복사"}</button></div></div>
+      <div className="lobby-title"><div><div className="eyebrow">ASSEMBLE HUMANS</div><h2>서로를 의심할<br />사람을 모으세요.</h2></div><div className="room-card"><span>초대 코드</span><strong>{roomCode}</strong><button onClick={() => { navigator.clipboard?.writeText(`${location.origin}${location.pathname}?room=${roomCode}`); setCopied(true); }}>{copied ? "초대 링크 복사 완료 ✓" : "초대 링크 복사"}</button></div></div>
       <div className="players">{Object.values(onlineProfiles).map((item, index) => <div className="player-card" key={item.id}><span className={`mini-avatar ${item.shape}`} style={{ background: item.color }}>{item.face}</span><div><strong>{item.name}</strong><small>{item.host ? "방장" : "게스트"} · 실시간 접속</small></div><i>READY</i></div>)}{Object.keys(onlineProfiles).length < 2 && <div className="add-player">초대 링크를 친구에게 보내세요</div>}</div>
       <div className="lobby-footer"><p>{Object.keys(onlineProfiles).length}명 접속 · 최소 2명 · 최대 4명</p>{isHost ? <button className="primary" disabled={Object.keys(onlineProfiles).length < 2} onClick={startOnlineGame}>게임 시작 →</button> : <span className="waiting-host">방장이 시작하기를 기다리는 중...</span>}</div>
     </section>}
