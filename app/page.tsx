@@ -8,8 +8,10 @@ type Drawing = { id: string; author: string; image: string; isAI: boolean };
 type Profile = { name: string; color: string; face: string; shape: string };
 type OnlineProfile = Profile & { id: string; host?: boolean };
 type ControlMessage =
-  | { type: "start"; word: string }
-  | { type: "gallery"; drawings: Drawing[] };
+  | { type: "start"; word: string; eliminatedIds: string[] }
+  | { type: "gallery"; drawings: Drawing[] }
+  | { type: "result"; eliminatedId: string | null };
+type PlayerStatus = "drawing" | "done" | "eliminated";
 const WORDS = ["우주에서 라면을 먹는 고양이", "비 오는 날의 놀이공원", "춤추는 선인장", "달에 간 붕어빵"];
 const COLORS = ["#171717", "#ff5d3b", "#6e56cf", "#168c73", "#f4b400"];
 const AVATAR_COLORS = ["#ff5d3b", "#6e56cf", "#168c73", "#f4b400", "#ef8eb8", "#58a6d8"];
@@ -119,6 +121,9 @@ export default function Home() {
   const [isHost, setIsHost] = useState(false);
   const [onlineProfiles, setOnlineProfiles] = useState<Record<string, OnlineProfile>>({});
   const [connectionText, setConnectionText] = useState("연결 중...");
+  const [playerStatuses, setPlayerStatuses] = useState<Record<string, PlayerStatus>>({});
+  const [eliminatedIds, setEliminatedIds] = useState<string[]>([]);
+  const [roundEliminatedId, setRoundEliminatedId] = useState<string | null>(null);
   const [players, setPlayers] = useState(2);
   const [turn, setTurn] = useState(0);
   const [drawings, setDrawings] = useState<Drawing[]>([]);
@@ -130,13 +135,18 @@ export default function Home() {
   const profileRef = useRef(profile);
   const wordRef = useRef(word);
   const profilesRef = useRef<Record<string, OnlineProfile>>({});
+  const eliminatedRef = useRef<string[]>([]);
   const submittedRef = useRef<Record<string, Drawing>>({});
+  const votesRef = useRef<Record<string, string>>({});
   const sendProfileRef = useRef<((data: OnlineProfile, options?: { target?: string }) => Promise<void>) | null>(null);
   const sendControlRef = useRef<((data: ControlMessage, options?: { target?: string }) => Promise<void>) | null>(null);
   const sendDrawingRef = useRef<((data: Drawing, options?: { target?: string }) => Promise<void>) | null>(null);
+  const sendStatusRef = useRef<((data: { id: string; status: PlayerStatus }, options?: { target?: string }) => Promise<void>) | null>(null);
+  const sendVoteRef = useRef<((data: { id: string; drawingId: string }, options?: { target?: string }) => Promise<void>) | null>(null);
   useEffect(() => { profileRef.current = profile; }, [profile]);
   useEffect(() => { wordRef.current = word; }, [word]);
   useEffect(() => { profilesRef.current = onlineProfiles; }, [onlineProfiles]);
+  useEffect(() => { eliminatedRef.current = eliminatedIds; }, [eliminatedIds]);
   useEffect(() => () => { void p2pRoomRef.current?.leave(); }, []);
   useEffect(() => {
     const saved = window.localStorage.getItem("mimic-profile");
@@ -161,13 +171,28 @@ export default function Home() {
   };
   const finishOnlineRound = useCallback(() => {
     const humanDrawings = Object.values(submittedRef.current);
-    if (humanDrawings.length < Object.keys(profilesRef.current).length) return;
+    const activeCount = Object.keys(profilesRef.current).filter(id => !eliminatedRef.current.includes(id)).length;
+    if (humanDrawings.length < activeCount) return;
     const aiDrawing: Drawing = { id: `ai-${Date.now()}`, author: "MIMIC BOT", image: pseudoAiSketch(wordRef.current), isAI: true };
     const complete = [...humanDrawings, aiDrawing];
     setDrawings(complete);
     setAiStatus("모든 그림이 도착했습니다!");
     sendControlRef.current?.({ type: "gallery", drawings: complete });
     window.setTimeout(() => setScreen("vote"), 450);
+  }, []);
+  const finishOnlineVote = useCallback(() => {
+    if (Object.keys(votesRef.current).length < Object.keys(profilesRef.current).length) return;
+    const counts: Record<string, number> = {};
+    Object.values(votesRef.current).forEach(id => { counts[id] = (counts[id] || 0) + 1; });
+    const winner = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0];
+    const eliminatedId = winner?.startsWith("human-") ? winner.slice(6) : null;
+    if (eliminatedId && !eliminatedRef.current.includes(eliminatedId)) {
+      eliminatedRef.current = [...eliminatedRef.current, eliminatedId];
+      setEliminatedIds(eliminatedRef.current);
+    }
+    setRoundEliminatedId(eliminatedId);
+    sendControlRef.current?.({ type: "result", eliminatedId });
+    setScreen("result");
   }, []);
   const connectOnline = (host: boolean, requestedCode?: string) => {
     p2pRoomRef.current?.leave();
@@ -182,9 +207,13 @@ export default function Home() {
     const profileAction = p2pRoom.makeAction<OnlineProfile>("profile");
     const controlAction = p2pRoom.makeAction<ControlMessage>("control");
     const drawingAction = p2pRoom.makeAction<Drawing>("drawing");
+    const statusAction = p2pRoom.makeAction<{ id: string; status: PlayerStatus }>("status");
+    const voteAction = p2pRoom.makeAction<{ id: string; drawingId: string }>("vote");
     sendProfileRef.current = profileAction.send;
     sendControlRef.current = controlAction.send;
     sendDrawingRef.current = drawingAction.send;
+    sendStatusRef.current = statusAction.send;
+    sendVoteRef.current = voteAction.send;
     profileAction.onMessage = data => {
       setOnlineProfiles(old => {
         const next = { ...old, [data.id]: data };
@@ -195,15 +224,30 @@ export default function Home() {
     };
     controlAction.onMessage = data => {
       if (data.type === "start") {
+        eliminatedRef.current = data.eliminatedIds; setEliminatedIds(data.eliminatedIds);
+        const statuses = Object.fromEntries(Object.keys(profilesRef.current).map(id => [id, data.eliminatedIds.includes(id) ? "eliminated" : "drawing"])) as Record<string, PlayerStatus>;
+        setPlayerStatuses(statuses); votesRef.current = {}; setRoundEliminatedId(null);
         wordRef.current = data.word; setWord(data.word); setDrawings([]); setSelected(""); submittedRef.current = {}; setScreen("draw");
-      } else {
+      } else if (data.type === "gallery") {
         setDrawings(data.drawings); setAiStatus("모든 그림이 도착했습니다!"); setScreen("vote");
+      } else {
+        if (data.eliminatedId && !eliminatedRef.current.includes(data.eliminatedId)) {
+          eliminatedRef.current = [...eliminatedRef.current, data.eliminatedId];
+          setEliminatedIds(eliminatedRef.current);
+        }
+        setRoundEliminatedId(data.eliminatedId); setScreen("result");
       }
     };
     drawingAction.onMessage = (data, context) => {
       if (!host) return;
       submittedRef.current[context.peerId] = data;
       finishOnlineRound();
+    };
+    statusAction.onMessage = data => setPlayerStatuses(old => ({ ...old, [data.id]: data.status }));
+    voteAction.onMessage = data => {
+      if (!host) return;
+      votesRef.current[data.id] = data.drawingId;
+      finishOnlineVote();
     };
     p2pRoom.onPeerJoin = peerId => {
       profileAction.send(mine, { target: peerId });
@@ -219,8 +263,10 @@ export default function Home() {
   const startOnlineGame = () => {
     if (!isHost || Object.keys(onlineProfiles).length < 2) return;
     const nextWord = WORDS[Math.floor(Math.random() * WORDS.length)];
+    const statuses = Object.fromEntries(Object.keys(onlineProfiles).map(id => [id, eliminatedRef.current.includes(id) ? "eliminated" : "drawing"])) as Record<string, PlayerStatus>;
+    setPlayerStatuses(statuses); votesRef.current = {}; setRoundEliminatedId(null);
     wordRef.current = nextWord; setWord(nextWord); setDrawings([]); setSelected(""); submittedRef.current = {}; setScreen("draw");
-    sendControlRef.current?.({ type: "start", word: nextWord });
+    sendControlRef.current?.({ type: "start", word: nextWord, eliminatedIds: eliminatedRef.current });
   };
   const leaveOnline = () => {
     void p2pRoomRef.current?.leave();
@@ -228,10 +274,20 @@ export default function Home() {
     window.history.replaceState({}, "", window.location.pathname);
     setScreen("home");
   };
+  const submitOnlineVote = () => {
+    if (!selected) return;
+    votesRef.current[selfId] = selected;
+    if (isHost) finishOnlineVote();
+    else sendVoteRef.current?.({ id: selfId, drawingId: selected });
+    setAiStatus("다른 플레이어의 투표를 기다리는 중...");
+    setScreen("ai");
+  };
   const startGame = () => { setWord(WORDS[Math.floor(Math.random() * WORDS.length)]); setDrawings([]); setTurn(0); setSelected(""); setScreen("draw"); };
   const submitHuman = (image: string) => {
     if (isOnline) {
       const mine: Drawing = { id: `human-${selfId}`, author: profile.name, image, isAI: false };
+      setPlayerStatuses(old => ({ ...old, [selfId]: "done" }));
+      sendStatusRef.current?.({ id: selfId, status: "done" });
       if (isHost) {
         submittedRef.current[selfId] = mine;
         setDrawings(Object.values(submittedRef.current));
@@ -311,17 +367,20 @@ export default function Home() {
     </section>}
     {screen === "draw" && <section className="game-screen">
       <div className="game-top"><div><span className="round">ROUND 01</span><span className="turn">{isOnline ? `${profile.name} 그리는 중` : `플레이어 ${turn + 1} 차례`}</span></div><div className="prompt"><small>오늘의 제시어</small><strong>{word}</strong></div><div className="timer"><small>TIME LEFT</small><strong>∞</strong></div></div>
-      <DrawingBoard key={isOnline ? word : turn} player={isOnline ? profile.name : `플레이어 ${turn + 1}`} onSubmit={submitHuman} /><p className="pass-note">{isOnline ? "친구들도 각자의 화면에서 동시에 그림을 그리고 있습니다." : "그림 제출 후 다음 플레이어에게 화면을 넘겨주세요. 그림은 투표 전까지 비공개입니다."}</p>
+      {isOnline && <div className="drawing-statuses">{Object.values(onlineProfiles).map(item => <div key={item.id} className={playerStatuses[item.id] || "drawing"}><span className={`mini-avatar ${item.shape}`} style={{ background: item.color }}>{item.face}</span><strong>{item.name}</strong><i>{playerStatuses[item.id] === "done" ? "제출 완료" : playerStatuses[item.id] === "eliminated" ? "탈락 · 투표만 가능" : "그리는 중..."}</i></div>)}</div>}
+      {isOnline && eliminatedIds.includes(selfId)
+        ? <div className="eliminated-wait"><span>OUT</span><h2>이번 라운드는<br />그림을 그릴 수 없어요.</h2><p>다른 사람의 그림이 완성되면 투표에 참여할 수 있습니다.</p></div>
+        : <><DrawingBoard key={isOnline ? word : turn} player={isOnline ? profile.name : `플레이어 ${turn + 1}`} onSubmit={submitHuman} /><p className="pass-note">{isOnline ? "친구들도 각자의 화면에서 동시에 그림을 그리고 있습니다." : "그림 제출 후 다음 플레이어에게 화면을 넘겨주세요. 그림은 투표 전까지 비공개입니다."}</p></>}
     </section>}
     {screen === "ai" && <section className="loading-screen"><div className="scanner"><div className="bot-face">⌁</div><i /></div><div className="eyebrow"><span>03</span> MACHINE AT WORK</div><h2>{aiStatus || "AI가 그림을 그리고 있어요..."}</h2><p>같은 흰 배경, 같은 펜 규칙으로 한 장을 추가합니다.</p></section>}
     {screen === "vote" && <section className="panel vote">
       <div className="section-top"><span>ROUND 01 / VOTE</span><span className="status-pill orange">정체 비공개</span></div>
-      <div className="vote-heading"><div><div className="eyebrow"><span>04</span> SPOT THE MACHINE</div><h2>AI가 그린<br />그림은 무엇일까요?</h2></div><p>그림을 자세히 보고 한 장을 선택하세요.<br />선의 망설임까지 연기했을지도 모릅니다.</p></div>
+      <div className="vote-heading"><div><div className="eyebrow"><span>04</span> ELIMINATE A PLAYER</div><h2>사람을<br />죽여주세요.</h2></div><p>게임 안에서 탈락시킬 그림을 한 장 선택하세요.<br />가장 많은 표를 받은 사람은 다음 라운드부터 투표만 할 수 있습니다.</p></div>
       <div className="gallery">{gallery.map((item, index) => <button key={item.id} className={`art-card ${selected === item.id ? "selected" : ""}`} onClick={() => setSelected(item.id)}><span>DRAWING / 0{index + 1}</span><img src={item.image} alt={`후보 그림 ${index + 1}`} /><b>{selected === item.id ? "선택됨 ✓" : "이 그림에 투표"}</b></button>)}</div>
-      <div className="vote-submit"><span>{selected ? "선택 완료. 정체를 확인해 보세요." : "AI라고 생각하는 그림을 선택하세요."}</span><button className="primary" disabled={!selected} onClick={() => setScreen("result")}>정체 공개 →</button></div>
+      <div className="vote-submit"><span>{selected ? "선택 완료. 이 그림의 주인에게 투표합니다." : "탈락시킬 사람의 그림을 선택하세요."}</span><button className="primary" disabled={!selected} onClick={isOnline ? submitOnlineVote : () => setScreen("result")}>투표 완료 →</button></div>
     </section>}
     {screen === "result" && picked && <section className="result-screen">
-      <div className="result-copy"><div className="eyebrow"><span>05</span> IDENTITY REVEALED</div><h2>{fooled ? <>완벽하게<br /><em>속았습니다.</em></> : <>정확하게<br /><em>찾았습니다.</em></>}</h2><p>{fooled ? `${picked.author}의 그림은 사람이 그렸습니다. AI처럼 보이는 데 성공했네요.` : "선택한 그림은 MIMIC BOT이 그린 진짜 AI 그림입니다."}</p><div className="score-row"><div><small>탐정 점수</small><strong>{fooled ? "+0" : "+1"}</strong></div><div><small>인간 위장 보너스</small><strong>{fooled ? "+2" : "+0"}</strong></div></div>{!isOnline || isHost ? <button className="primary" onClick={isOnline ? startOnlineGame : startGame}>다음 라운드 →</button> : <span className="waiting-host">방장이 다음 라운드를 준비 중...</span>}<button className="text-button" onClick={isOnline ? leaveOnline : () => setScreen("home")}>게임 종료</button></div>
+      <div className="result-copy"><div className="eyebrow"><span>05</span> VOTE RESULT</div><h2>{isOnline ? (roundEliminatedId ? <>{onlineProfiles[roundEliminatedId]?.name || "한 사람"}<br /><em>탈락입니다.</em></> : <>이번에는<br /><em>사람이 살았습니다.</em></>) : (fooled ? <>완벽하게<br /><em>속았습니다.</em></> : <>정확하게<br /><em>찾았습니다.</em></>)}</h2><p>{isOnline ? (roundEliminatedId ? "가장 많은 표를 받았습니다. 다음 라운드부터 그림은 그릴 수 없지만 투표에는 계속 참여합니다." : "AI 그림이 가장 많은 표를 받아 사람 플레이어는 탈락하지 않았습니다.") : (fooled ? `${picked.author}의 그림은 사람이 그렸습니다. AI처럼 보이는 데 성공했네요.` : "선택한 그림은 MIMIC BOT이 그린 진짜 AI 그림입니다.")}</p>{!isOnline && <div className="score-row"><div><small>탐정 점수</small><strong>{fooled ? "+0" : "+1"}</strong></div><div><small>인간 위장 보너스</small><strong>{fooled ? "+2" : "+0"}</strong></div></div>}{!isOnline || isHost ? <button className="primary" onClick={isOnline ? startOnlineGame : startGame}>다음 라운드 →</button> : <span className="waiting-host">방장이 다음 라운드를 준비 중...</span>}<button className="text-button" onClick={isOnline ? leaveOnline : () => setScreen("home")}>게임 종료</button></div>
       <div className="reveal-stack">{drawings.map(item => <article key={item.id} className={item.id === selected ? "picked" : ""}><img src={item.image} alt={`${item.author}의 그림`} /><div><span>{item.isAI ? "AI" : "HUMAN"}</span><strong>{item.author}</strong>{item.id === selected && <b>YOUR PICK</b>}</div></article>)}</div>
     </section>}
     <footer><span>MIMIC.AI / 2026</span><span>HUMANS PRETENDING TO BE MACHINES</span></footer>
