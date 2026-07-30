@@ -1,4 +1,4 @@
-create extension if not exists pgcrypto;
+create extension if not exists pgcrypto with schema extensions;
 
 create table if not exists public.game_rooms (
   code text primary key,
@@ -31,8 +31,8 @@ begin
   insert into game_rooms(code, name, host_name, visibility, password_hash, host_token_hash)
   values (
     upper(left(p_code, 6)), left(p_name, 20), left(p_host_name, 12), p_visibility,
-    case when p_visibility = 'private' then encode(digest(p_password, 'sha256'), 'hex') end,
-    encode(digest(p_host_token, 'sha256'), 'hex')
+    case when p_visibility = 'private' then encode(extensions.digest(convert_to(p_password, 'UTF8'), 'sha256'), 'hex') end,
+    encode(extensions.digest(convert_to(p_host_token, 'UTF8'), 'sha256'), 'hex')
   )
   on conflict (code) do update set
     name = excluded.name, host_name = excluded.host_name, visibility = excluded.visibility,
@@ -44,7 +44,7 @@ create or replace function public.heartbeat_game_room(p_code text, p_host_token 
 returns boolean language plpgsql security definer set search_path = public as $$
 begin
   update game_rooms set players = greatest(0, least(4, p_players)), updated_at = now()
-  where code = upper(p_code) and host_token_hash = encode(digest(p_host_token, 'sha256'), 'hex');
+  where code = upper(p_code) and host_token_hash = encode(extensions.digest(convert_to(p_host_token, 'UTF8'), 'sha256'), 'hex');
   return found;
 end $$;
 
@@ -52,7 +52,7 @@ create or replace function public.delete_game_room(p_code text, p_host_token tex
 returns boolean language plpgsql security definer set search_path = public as $$
 begin
   delete from game_rooms
-  where code = upper(p_code) and host_token_hash = encode(digest(p_host_token, 'sha256'), 'hex');
+  where code = upper(p_code) and host_token_hash = encode(extensions.digest(convert_to(p_host_token, 'UTF8'), 'sha256'), 'hex');
   return found;
 end $$;
 
@@ -62,7 +62,7 @@ returns boolean language sql security definer set search_path = public as $$
     select 1 from game_rooms
     where code = upper(p_code)
       and visibility = 'private'
-      and password_hash = encode(digest(p_password, 'sha256'), 'hex')
+      and password_hash = encode(extensions.digest(convert_to(p_password, 'UTF8'), 'sha256'), 'hex')
       and updated_at > now() - interval '20 seconds'
   );
 $$;
