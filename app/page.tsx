@@ -10,6 +10,7 @@ type Profile = { name: string; color: string; face: string; shape: string };
 type OnlineProfile = Profile & { id: string; host?: boolean };
 type PublicRoom = { code: string; name: string; hostName: string; players: number; visibility: "public" | "private"; passwordHash?: string; updatedAt: number };
 type RoomMeta = { name: string; visibility: "public" | "private"; aiCount: number };
+type ChatMessage = { id: string; senderId: string; senderName: string; text: string; sentAt: number };
 type ControlMessage =
   | { type: "start"; word: string; eliminatedIds: string[] }
   | { type: "gallery"; drawings: Drawing[]; voteEndsAt: number }
@@ -164,6 +165,8 @@ export default function Home() {
   const [roomName, setRoomName] = useState("");
   const [currentRoomName, setCurrentRoomName] = useState("");
   const [aiCount, setAiCount] = useState(1);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState("");
   const [roomVisibility, setRoomVisibility] = useState<"public" | "private">("public");
   const [roomPassword, setRoomPassword] = useState("");
   const [passwordAttempts, setPasswordAttempts] = useState<Record<string, string>>({});
@@ -207,6 +210,7 @@ export default function Home() {
   const finishOnlineVoteRef = useRef<() => void>(() => {});
   const sendProfileRef = useRef<((data: OnlineProfile, options?: { target?: string }) => Promise<void>) | null>(null);
   const sendRoomMetaRef = useRef<((data: RoomMeta, options?: { target?: string }) => Promise<void>) | null>(null);
+  const sendChatRef = useRef<((data: ChatMessage, options?: { target?: string }) => Promise<void>) | null>(null);
   const sendControlRef = useRef<((data: ControlMessage, options?: { target?: string }) => Promise<void>) | null>(null);
   const sendDrawingRef = useRef<((data: Drawing, options?: { target?: string }) => Promise<void>) | null>(null);
   const sendStatusRef = useRef<((data: { id: string; status: PlayerStatus }, options?: { target?: string }) => Promise<void>) | null>(null);
@@ -419,6 +423,7 @@ export default function Home() {
   finishOnlineVoteRef.current = finishOnlineVote;
   const connectOnline = (host: boolean, requestedCode?: string) => {
     p2pRoomRef.current?.leave();
+    setChatMessages([]); setChatInput("");
     const code = (requestedCode || randomCode()).trim().toUpperCase();
     if (code.length < 4) return;
     setRoomCode(code); setIsOnline(true); setIsHost(host); isHostRef.current = host; setConnectionText("친구를 기다리는 중...");
@@ -429,12 +434,14 @@ export default function Home() {
     p2pRoomRef.current = p2pRoom;
     const profileAction = p2pRoom.makeAction<OnlineProfile>("profile");
     const roomMetaAction = p2pRoom.makeAction<RoomMeta>("room-meta");
+    const chatAction = p2pRoom.makeAction<ChatMessage>("chat");
     const controlAction = p2pRoom.makeAction<ControlMessage>("control");
     const drawingAction = p2pRoom.makeAction<Drawing>("drawing");
     const statusAction = p2pRoom.makeAction<{ id: string; status: PlayerStatus }>("status");
     const voteAction = p2pRoom.makeAction<{ id: string; drawingId: string }>("vote");
     sendProfileRef.current = profileAction.send;
     sendRoomMetaRef.current = roomMetaAction.send;
+    sendChatRef.current = chatAction.send;
     sendControlRef.current = controlAction.send;
     sendDrawingRef.current = drawingAction.send;
     sendStatusRef.current = statusAction.send;
@@ -452,6 +459,7 @@ export default function Home() {
       setAiCount(data.aiCount || 1);
       aiCountRef.current = data.aiCount || 1;
     };
+    chatAction.onMessage = data => setChatMessages(old => [...old.slice(-49), data]);
     controlAction.onMessage = data => {
       if (data.type === "start") {
         voteGateOpenRef.current = false; setVoteDeadline(0);
@@ -536,6 +544,17 @@ export default function Home() {
       aiCount: count
     });
   };
+  const sendChatMessage = () => {
+    const text = chatInput.trim().slice(0, 120);
+    if (!text) return;
+    const message: ChatMessage = {
+      id: `${selfId}-${Date.now()}`, senderId: selfId,
+      senderName: profileRef.current.name, text, sentAt: Date.now()
+    };
+    setChatMessages(old => [...old.slice(-49), message]);
+    setChatInput("");
+    sendChatRef.current?.(message);
+  };
   const leaveOnline = () => {
     if (isHostRef.current && isSupabaseConfigured && hostTokenRef.current) {
       void deleteRoomRecord(roomCode, hostTokenRef.current);
@@ -547,6 +566,7 @@ export default function Home() {
     voteTimerRef.current = null; voteGateOpenRef.current = false;
     void p2pRoomRef.current?.leave();
     p2pRoomRef.current = null; setIsOnline(false); setIsHost(false); isHostRef.current = false; setOnlineProfiles({});
+    setChatMessages([]); setChatInput("");
     window.history.replaceState({}, "", window.location.pathname);
     setScreen("home");
   };
@@ -656,8 +676,13 @@ export default function Home() {
     </section>}
     {screen === "lobby" && <section className="panel lobby">
       <div className="lobby-title"><div><h2 className="room-name-heading">{currentRoomName || `${Object.values(onlineProfiles).find(item => item.host)?.name || profile.name}의 방`}</h2><div className="eyebrow">ASSEMBLE HUMANS</div></div><div className="room-card"><span>초대 코드</span><strong>{roomCode}</strong><button onClick={() => { navigator.clipboard?.writeText(`${location.origin}${location.pathname}?room=${roomCode}`); setCopied(true); }}>{copied ? "초대 링크 복사 완료 ✓" : "초대 링크 복사"}</button></div></div>
-      <div className="ai-count-control"><span>AI 참가자</span><div>{[1, 2, 3].map(count => <button key={count} className={aiCount === count ? "active" : ""} disabled={!isHost} onClick={() => chooseAiCount(count)}>{count}명</button>)}</div><small>{isHost ? "방장이 AI 수를 선택합니다." : `방장이 AI ${aiCount}명으로 설정했습니다.`}</small></div>
+      <div className="ai-count-control"><span>AI 참가자</span><div>{[1, 2, 3].map(count => <button key={count} className={aiCount === count ? "active" : ""} disabled={!isHost} onClick={() => chooseAiCount(count)}>{count}명</button>)}</div></div>
       <div className="players">{Object.values(onlineProfiles).sort((a, b) => Number(Boolean(b.host)) - Number(Boolean(a.host))).map(item => <div className="player-card" key={item.id}><span className={`mini-avatar ${item.shape}`} style={{ background: item.color }}>{item.face}</span><div><strong>{item.name}</strong><small>{item.host ? "방장" : "게스트"} · 실시간 접속</small></div><i>READY</i></div>)}{Object.keys(onlineProfiles).length < 2 && <button className="add-player" onClick={() => { navigator.clipboard?.writeText(`${location.origin}${location.pathname}?room=${roomCode}`); setCopied(true); }}>{copied ? "복사 완료 ✓" : "초대 +"}</button>}</div>
+      <div className="room-chat">
+        <div className="chat-head"><strong>ROOM CHAT</strong><span>{Object.keys(onlineProfiles).length}명 접속</span></div>
+        <div className="chat-messages">{chatMessages.length ? chatMessages.map(message => <div key={message.id} className={message.senderId === selfId ? "mine" : ""}><strong>{message.senderName}</strong><p>{message.text}</p></div>) : <p className="chat-empty">첫 메시지를 보내보세요.</p>}</div>
+        <div className="chat-compose"><input maxLength={120} value={chatInput} placeholder="메시지 입력" onChange={event => setChatInput(event.target.value)} onKeyDown={event => { if (event.key === "Enter") sendChatMessage(); }} /><button onClick={sendChatMessage} disabled={!chatInput.trim()}>전송 →</button></div>
+      </div>
       <div className="lobby-footer"><p>{Object.keys(onlineProfiles).length}명 접속 · 최소 2명 · 최대 4명</p>{isHost ? <button className="primary" disabled={Object.keys(onlineProfiles).length < 2} onClick={startOnlineGame}>게임 시작 →</button> : <span className="waiting-host">방장이 시작하기를 기다리는 중...</span>}</div>
     </section>}
     {screen === "draw" && <section className="game-screen">
