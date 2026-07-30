@@ -27,32 +27,47 @@ function pseudoAiSketch(word: string) {
   const wobble = (n: number, amount = 10) => Math.sin(seed * .17 + n * 1.9) * amount;
   const line = (color = "#171717", width = 9) => { c.strokeStyle = color; c.lineWidth = width + wobble(width, 1.5); };
   const dot = (x: number, y: number, r = 8) => { c.fillStyle = "#171717"; c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fill(); };
+  const roughArc = (cx: number, cy: number, rx: number, ry: number, start = 0, end = Math.PI * 2, rotation = 0, roughness = 7) => {
+    const steps = Math.max(24, Math.round(54 * Math.abs(end - start) / (Math.PI * 2)));
+    c.beginPath();
+    for (let i = 0; i <= steps; i++) {
+      const angle = start + (end - start) * (i / steps);
+      const shake = Math.sin(angle * 5 + seed * .11) * roughness + Math.sin(angle * 11 + seed * .07) * roughness * .35;
+      const localX = Math.cos(angle) * (rx + shake);
+      const localY = Math.sin(angle) * (ry + shake * .65);
+      const x = cx + localX * Math.cos(rotation) - localY * Math.sin(rotation);
+      const y = cy + localX * Math.sin(rotation) + localY * Math.cos(rotation);
+      if (i === 0) c.moveTo(x, y); else c.lineTo(x, y);
+    }
+    if (Math.abs(end - start) >= Math.PI * 1.99) c.closePath();
+    c.stroke();
+  };
   const accent = COLORS[(seed % 4) + 1];
   line();
 
   if (word.includes("놀이공원")) {
-    c.beginPath(); c.arc(455, 285, 175 + wobble(1), 0, Math.PI * 2); c.stroke();
+    roughArc(455, 285, 175 + wobble(1), 171 + wobble(3), 0, Math.PI * 2, wobble(4, .035), 9);
     for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; c.beginPath(); c.moveTo(455, 285); c.lineTo(455 + Math.cos(a) * 175, 285 + Math.sin(a) * 175); c.stroke(); }
     line(accent, 12); c.beginPath(); c.moveTo(335, 520); c.lineTo(455, 285); c.lineTo(575, 520); c.stroke();
     line(); for (let i = 0; i < 6; i++) { c.beginPath(); c.moveTo(155 + i * 125, 80 + wobble(i, 18)); c.lineTo(145 + i * 125, 125 + wobble(i + 2, 14)); c.stroke(); }
   } else if (word.includes("선인장")) {
     line(accent, 16); c.beginPath(); c.moveTo(445, 500); c.bezierCurveTo(415, 390, 430, 230, 455, 125); c.stroke();
     c.beginPath(); c.moveTo(430, 330); c.bezierCurveTo(345, 350, 330, 285, 340, 235); c.moveTo(465, 275); c.bezierCurveTo(555, 295, 575, 230, 565, 180); c.stroke();
-    line(); c.beginPath(); c.ellipse(455, 520, 150, 38, 0, 0, Math.PI * 2); c.stroke();
+    line(); roughArc(455, 520, 150, 38, 0, Math.PI * 2, wobble(5, .04), 5);
     for (let i = 0; i < 14; i++) { const x = 350 + (i * 47) % 220, y = 150 + (i * 71) % 300; c.beginPath(); c.moveTo(x, y); c.lineTo(x + wobble(i, 12), y - 13); c.stroke(); }
     dot(420, 205); dot(480, 205); c.beginPath(); c.arc(452, 235, 35, .1, Math.PI - .1); c.stroke();
   } else if (word.includes("붕어빵")) {
-    line(accent, 13); c.beginPath(); c.ellipse(430, 340, 190 + wobble(2), 95, -.08, 0, Math.PI * 2); c.stroke();
+    line(accent, 13); roughArc(430, 340, 190 + wobble(2), 95 + wobble(6, 5), 0, Math.PI * 2, -.08 + wobble(7, .025), 8);
     c.beginPath(); c.moveTo(590, 325); c.lineTo(715, 245); c.lineTo(690, 385); c.closePath(); c.stroke();
-    line(); c.beginPath(); c.arc(680, 145, 75, .3, Math.PI * 1.7); c.stroke();
+    line(); roughArc(680, 145, 75, 72, .3, Math.PI * 1.7, wobble(8, .03), 6);
     c.beginPath(); c.moveTo(300, 295); c.quadraticCurveTo(430, 340, 300, 395); c.moveTo(370, 255); c.lineTo(420, 425); c.moveTo(455, 248); c.lineTo(490, 425); c.stroke();
     dot(280, 330, 9);
     for (let i = 0; i < 10; i++) dot(120 + ((i * 83) % 650), 80 + ((i * 47) % 130), 3 + (i % 3));
   } else {
-    c.beginPath(); c.arc(440, 255, 120 + wobble(1), 0, Math.PI * 2); c.stroke();
+    roughArc(440, 255, 120 + wobble(1), 116 + wobble(9, 5), 0, Math.PI * 2, wobble(10, .04), 7);
     c.beginPath(); c.moveTo(350, 185); c.lineTo(390 + wobble(1), 95); c.lineTo(430, 165); c.moveTo(475, 165); c.lineTo(520 + wobble(2), 95); c.lineTo(545, 190); c.stroke();
     dot(400, 250); dot(480, 250); c.beginPath(); c.moveTo(430, 290); c.quadraticCurveTo(450, 315, 475, 290); c.stroke();
-    line(accent, 13); c.beginPath(); c.ellipse(445, 440, 185, 75, 0, 0, Math.PI * 2); c.stroke();
+    line(accent, 13); roughArc(445, 440, 185 + wobble(11, 8), 75 + wobble(12, 5), 0, Math.PI * 2, wobble(13, .025), 7);
     for (let i = 0; i < 5; i++) { c.beginPath(); c.moveTo(300 + i * 70, 410 + wobble(i)); c.quadraticCurveTo(345 + i * 45, 455, 330 + i * 75, 475 + wobble(i + 4)); c.stroke(); }
   }
   return canvas.toDataURL("image/png");
