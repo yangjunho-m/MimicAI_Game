@@ -44,22 +44,24 @@ const DIRECTORY_CONFIG = {
   }
 };
 
-function pseudoAiSketch(word: string) {
+function pseudoAiSketch(word: string, aiVariant = Math.floor(Math.random() * 3)) {
   const canvas = document.createElement("canvas");
   canvas.width = 900; canvas.height = 620;
   const c = canvas.getContext("2d")!;
   c.fillStyle = "#fff"; c.fillRect(0, 0, canvas.width, canvas.height);
   c.lineCap = "round"; c.lineJoin = "round";
-  const seed = [...word].reduce((a, v) => a + v.charCodeAt(0), 0) + Math.floor(Math.random() * 10000);
+  const seed = [...word].reduce((a, v) => a + v.charCodeAt(0), 0) + Math.floor(Math.random() * 10000) + aiVariant * 7919;
+  const styleRoughness = [1.65, .7, 1.15][aiVariant % 3];
+  const styleWidth = [1.15, .78, .95][aiVariant % 3];
   const wobble = (n: number, amount = 10) => Math.sin(seed * .17 + n * 1.9) * amount;
-  const line = (color = "#171717", width = 9) => { c.strokeStyle = color; c.lineWidth = width + wobble(width, 1.5); };
+  const line = (color = "#171717", width = 9) => { c.strokeStyle = color; c.lineWidth = (width + wobble(width, 1.5)) * styleWidth; };
   const dot = (x: number, y: number, r = 8) => { c.fillStyle = "#171717"; c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fill(); };
   const roughArc = (cx: number, cy: number, rx: number, ry: number, start = 0, end = Math.PI * 2, rotation = 0, roughness = 7) => {
     const steps = Math.max(24, Math.round(54 * Math.abs(end - start) / (Math.PI * 2)));
     c.beginPath();
     for (let i = 0; i <= steps; i++) {
       const angle = start + (end - start) * (i / steps);
-      const shake = Math.sin(angle * 5 + seed * .11) * roughness + Math.sin(angle * 11 + seed * .07) * roughness * .35;
+      const shake = (Math.sin(angle * 5 + seed * .11) * roughness + Math.sin(angle * 11 + seed * .07) * roughness * .35) * styleRoughness;
       const localX = Math.cos(angle) * (rx + shake);
       const localY = Math.sin(angle) * (ry + shake * .65);
       const x = cx + localX * Math.cos(rotation) - localY * Math.sin(rotation);
@@ -75,17 +77,20 @@ function pseudoAiSketch(word: string) {
     for (let i = 1; i <= steps; i++) {
       const t = i / steps;
       const fade = Math.sin(Math.PI * t);
-      const x = x1 + (x2 - x1) * t + Math.sin(seed * .13 + i * 2.4) * roughness * fade;
-      const y = y1 + (y2 - y1) * t + Math.cos(seed * .09 + i * 1.7) * roughness * fade;
+      const x = x1 + (x2 - x1) * t + Math.sin(seed * .13 + i * 2.4) * roughness * fade * styleRoughness;
+      const y = y1 + (y2 - y1) * t + Math.cos(seed * .09 + i * 1.7) * roughness * fade * styleRoughness;
       c.lineTo(x, y);
     }
     c.stroke();
   };
   const accent = COLORS[(seed % 4) + 1];
-  const compositionScale = .82 + ((seed % 29) / 100);
-  const flip = seed % 2 ? -1 : 1;
-  c.translate(450 + wobble(20, 65), 310 + wobble(21, 42));
-  c.rotate(wobble(22, .11));
+  const compositionScales = [.88, 1.22, .66];
+  const compositionX = [-95, 105, 15];
+  const compositionY = [35, -42, 65];
+  const compositionScale = compositionScales[aiVariant % 3] + ((seed % 9) / 100);
+  const flip = aiVariant === 1 ? -1 : 1;
+  c.translate(450 + compositionX[aiVariant % 3] + wobble(20, 24), 310 + compositionY[aiVariant % 3] + wobble(21, 18));
+  c.rotate([-.09, .13, -.035][aiVariant % 3] + wobble(22, .035));
   c.scale(compositionScale * flip, compositionScale);
   c.translate(-450, -310);
   line();
@@ -112,6 +117,20 @@ function pseudoAiSketch(word: string) {
     roughLine(350, 185, 390 + wobble(1), 95, 7); roughLine(390 + wobble(1), 95, 430, 165, 7); roughLine(475, 165, 520 + wobble(2), 95, 7); roughLine(520 + wobble(2), 95, 545, 190, 7);
     line(accent, 13); roughArc(445, 440, 185 + wobble(11, 8), 75 + wobble(12, 5), 0, Math.PI * 2, wobble(13, .025), 7);
     for (let i = 0; i < 5; i++) { c.beginPath(); c.moveTo(300 + i * 70, 410 + wobble(i)); c.quadraticCurveTo(345 + i * 45, 455, 330 + i * 75, 475 + wobble(i + 4)); c.stroke(); }
+  }
+  line(aiVariant === 1 ? "#171717" : accent, aiVariant === 0 ? 7 : 5);
+  if (aiVariant === 0) {
+    for (let i = 0; i < 5; i++) roughLine(105 + i * 145, 535 + wobble(i, 10), 185 + i * 135, 555 + wobble(i + 3, 16), 9);
+  } else if (aiVariant === 1) {
+    roughLine(105, 105, 790, 78, 3);
+    roughLine(790, 78, 820, 535, 3);
+    roughLine(820, 535, 135, 558, 3);
+  } else {
+    for (let i = 0; i < 13; i++) {
+      const x = 90 + ((i * 127 + seed) % 720);
+      const y = 65 + ((i * 83 + seed) % 480);
+      roughArc(x, y, 8 + (i % 4) * 3, 7 + ((i + 2) % 3) * 3, 0, Math.PI * 2, 0, 4);
+    }
   }
   return canvas.toDataURL("image/png");
 }
@@ -362,7 +381,7 @@ export default function Home() {
     if (humanDrawings.length < activeCount || aiReadyCountRef.current < aiCountRef.current) return;
     const aiDrawings: Drawing[] = Array.from({ length: aiCountRef.current }, (_, index) => ({
       id: `ai-${index}-${Date.now()}`, author: `MIMIC BOT ${index + 1}`,
-      image: pseudoAiSketch(wordRef.current), isAI: true
+      image: pseudoAiSketch(wordRef.current, index), isAI: true
     }));
     const complete = [...humanDrawings, ...aiDrawings];
     const voteEndsAt = Date.now() + 10000;
