@@ -481,7 +481,7 @@ export default function Home() {
     </section>}
     {screen === "home" && <section className="hero">
       <div className="eyebrow">DRAW LIKE A MACHINE</div>
-      <h1>너<br /><em>누구야.</em></h1>
+      <h1>너 <em>누구야.</em></h1>
       <p className="hero-copy"><strong>{profile.name}</strong>, 당신이 인간이라는 사실은 아무도 몰라야 합니다.<br />망설이는 손끝 하나면 정체가 드러납니다. 기계처럼 그리고, 끝까지 살아남으세요.</p>
       <div className="hero-actions"><button className="primary" onClick={() => setScreen("rooms")}>온라인 플레이 <span>↗</span></button><button className="secondary" onClick={() => { setIsOnline(false); setPlayers(2); startGame(); }}>한 기기 데모</button></div>
       <div className="join-room"><span>친구 방에 참여</span><div><input value={joinCode} maxLength={6} placeholder="초대 코드" onChange={e => setJoinCode(e.target.value.toUpperCase())} onKeyDown={e => { if (e.key === "Enter") connectOnline(false, joinCode); }} /><button onClick={() => connectOnline(false, joinCode)} disabled={joinCode.trim().length < 4}>입장 →</button></div></div>
@@ -510,8 +510,8 @@ export default function Home() {
     </section>}
     {screen === "lobby" && <section className="panel lobby">
       <div className="section-top"><span>ROOM / {roomCode}</span><span className="status-pill">{connectionText}</span></div>
-      <div className="lobby-title"><div><div className="eyebrow">ASSEMBLE HUMANS</div><h2>서로를 의심할<br />사람을 모으세요.</h2></div><div className="room-card"><span>초대 코드</span><strong>{roomCode}</strong><button onClick={() => { navigator.clipboard?.writeText(`${location.origin}${location.pathname}?room=${roomCode}`); setCopied(true); }}>{copied ? "초대 링크 복사 완료 ✓" : "초대 링크 복사"}</button></div></div>
-      <div className="players">{Object.values(onlineProfiles).map((item, index) => <div className="player-card" key={item.id}><span className={`mini-avatar ${item.shape}`} style={{ background: item.color }}>{item.face}</span><div><strong>{item.name}</strong><small>{item.host ? "방장" : "게스트"} · 실시간 접속</small></div><i>READY</i></div>)}{Object.keys(onlineProfiles).length < 2 && <div className="add-player">초대 링크를 친구에게 보내세요</div>}</div>
+      <div className="lobby-title"><div><div className="eyebrow">ASSEMBLE HUMANS</div><h2 className="lobby-line">서로를 의심할 사람을 모으세요.</h2></div><div className="room-card"><span>초대 코드</span><strong>{roomCode}</strong><button onClick={() => { navigator.clipboard?.writeText(`${location.origin}${location.pathname}?room=${roomCode}`); setCopied(true); }}>{copied ? "초대 링크 복사 완료 ✓" : "초대 링크 복사"}</button></div></div>
+      <div className="players">{Object.values(onlineProfiles).map((item, index) => <div className="player-card" key={item.id}><span className={`mini-avatar ${item.shape}`} style={{ background: item.color }}>{item.face}</span><div><strong>{item.name}</strong><small>{item.host ? "방장" : "게스트"} · 실시간 접속</small></div><i>READY</i></div>)}{Object.keys(onlineProfiles).length < 2 && <div className="add-player">초대 +</div>}</div>
       <div className="lobby-footer"><p>{Object.keys(onlineProfiles).length}명 접속 · 최소 2명 · 최대 4명</p>{isHost ? <button className="primary" disabled={Object.keys(onlineProfiles).length < 2} onClick={startOnlineGame}>게임 시작 →</button> : <span className="waiting-host">방장이 시작하기를 기다리는 중...</span>}</div>
     </section>}
     {screen === "draw" && <section className="game-screen">
