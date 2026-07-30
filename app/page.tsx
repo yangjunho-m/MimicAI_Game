@@ -3,6 +3,7 @@
 import { PointerEvent, useCallback, useEffect, useRef, useState } from "react";
 import { joinRoom, selfId } from "trystero";
 import { createRoomRecord, deleteRoomRecord, heartbeatRoom, isSupabaseConfigured, listRooms, verifyRoomPassword } from "../lib/supabaseRooms";
+import { generateAiImage } from "../lib/aiImages";
 
 type Screen = "profile" | "home" | "rooms" | "lobby" | "draw" | "ai" | "vote" | "result";
 type Drawing = { id: string; author: string; image: string; isAI: boolean };
@@ -258,6 +259,7 @@ export default function Home() {
   const aiTimerRef = useRef<number | null>(null);
   const aiTimersRef = useRef<number[]>([]);
   const aiReadyCountRef = useRef(0);
+  const aiGeneratedImagesRef = useRef<Record<number, string>>({});
   const aiCountRef = useRef(1);
   const voteGateOpenRef = useRef(false);
   const voteTimerRef = useRef<number | null>(null);
@@ -430,7 +432,7 @@ export default function Home() {
     if (humanDrawings.length < activeCount || aiReadyCountRef.current < activeAiIndexes.length) return;
     const aiDrawings: Drawing[] = activeAiIndexes.map(index => {
       const identity = getAiIdentity(index, wordRef.current);
-      return { id: `ai-${index}`, author: identity.name, image: pseudoAiSketch(wordRef.current, index), isAI: true };
+      return { id: `ai-${index}`, author: identity.name, image: aiGeneratedImagesRef.current[index] || pseudoAiSketch(wordRef.current, index), isAI: true };
     });
     const complete = [...humanDrawings, ...aiDrawings];
     const voteEndsAt = Date.now() + 10000;
@@ -454,12 +456,23 @@ export default function Home() {
     aiTimersRef.current = [];
     aiReadyRef.current = false;
     aiReadyCountRef.current = 0;
+    aiGeneratedImagesRef.current = {};
     setAiPlayerStatus("drawing");
     const activeAiIndexes = Array.from({ length: aiCountRef.current }, (_, index) => index).filter(index => !eliminatedAiRef.current.includes(index));
     const aiStatuses = Object.fromEntries(activeAiIndexes.map(index => [`__ai_${index}`, "drawing"])) as Record<string, PlayerStatus>;
     setPlayerStatuses(old => ({ ...old, ...aiStatuses }));
-    activeAiIndexes.forEach(index => {
+    activeAiIndexes.forEach(async index => {
       sendStatusRef.current?.({ id: `__ai_${index}`, status: "drawing" });
+      const startedAt = Date.now();
+      const pretendDuration = 3000 + Math.floor(Math.random() * 4000);
+      try {
+        const generated = await generateAiImage(wordRef.current, index);
+        aiGeneratedImagesRef.current[index] = generated.image;
+      } catch (error) {
+        console.warn(`AI ${index + 1} generation failed; using local fallback`, error);
+        aiGeneratedImagesRef.current[index] = pseudoAiSketch(wordRef.current, index);
+      }
+      const remainingDelay = Math.max(0, pretendDuration - (Date.now() - startedAt));
       const timer = window.setTimeout(() => {
         aiReadyCountRef.current += 1;
         const allDone = aiReadyCountRef.current >= activeAiIndexes.length;
@@ -468,7 +481,7 @@ export default function Home() {
         setPlayerStatuses(old => ({ ...old, [`__ai_${index}`]: "done" }));
         sendStatusRef.current?.({ id: `__ai_${index}`, status: "done" });
         finishOnlineRound();
-      }, 3000 + Math.floor(Math.random() * 4000));
+      }, remainingDelay);
       aiTimersRef.current.push(timer);
     });
   }, [finishOnlineRound]);
