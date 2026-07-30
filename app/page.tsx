@@ -20,6 +20,13 @@ const FACES = ["•ᴗ•", "¬‿¬", "•̀ᴗ•́", "◕‿◕", "×‿×", 
 const SHAPES = ["round", "square", "blob"];
 const randomCode = () => Math.random().toString(36).slice(2, 6).toUpperCase();
 const hashPassword = (value: string) => [...value].reduce((hash, char) => ((hash * 31) + char.charCodeAt(0)) >>> 0, 2166136261).toString(36);
+const DIRECTORY_CONFIG = {
+  appId: "mimic-ai-game-2026-directory-v2",
+  relayConfig: {
+    urls: ["wss://relay.damus.io", "wss://relay.primal.net", "wss://nos.lol"],
+    redundancy: 3
+  }
+};
 
 function pseudoAiSketch(word: string) {
   const canvas = document.createElement("canvas");
@@ -138,6 +145,8 @@ export default function Home() {
   const [roomPassword, setRoomPassword] = useState("");
   const [passwordAttempts, setPasswordAttempts] = useState<Record<string, string>>({});
   const [passwordErrors, setPasswordErrors] = useState<Record<string, boolean>>({});
+  const [roomRefreshKey, setRoomRefreshKey] = useState(0);
+  const [isRefreshingRooms, setIsRefreshingRooms] = useState(false);
   const [connectionText, setConnectionText] = useState("연결 중...");
   const [playerStatuses, setPlayerStatuses] = useState<Record<string, PlayerStatus>>({});
   const [aiPlayerStatus, setAiPlayerStatus] = useState<PlayerStatus>("drawing");
@@ -193,7 +202,7 @@ export default function Home() {
   }, []);
   useEffect(() => {
     if (screen !== "rooms" && !(screen === "lobby" && isHost)) return;
-    const directory = joinRoom({ appId: "mimic-ai-game-2026-directory-v1" }, "PUBLIC-ROOMS");
+    const directory = joinRoom(DIRECTORY_CONFIG, "PUBLIC-ROOMS");
     directoryRoomRef.current = directory;
     const roomAction = directory.makeAction<PublicRoom>("room");
     const queryAction = directory.makeAction<{ requestedAt: number }>("query");
@@ -210,7 +219,10 @@ export default function Home() {
         updatedAt: Date.now()
       }, target ? { target } : undefined);
     };
-    roomAction.onMessage = room => setPublicRooms(old => ({ ...old, [room.code]: room }));
+    roomAction.onMessage = room => {
+      setPublicRooms(old => ({ ...old, [room.code]: room }));
+      setIsRefreshingRooms(false);
+    };
     queryAction.onMessage = (_query, context) => publish(context.peerId);
     directory.onPeerJoin = peerId => {
       publish(peerId);
@@ -218,6 +230,7 @@ export default function Home() {
     };
     publish();
     if (screen === "rooms") queryAction.send({ requestedAt: Date.now() });
+    const refreshDoneTimer = window.setTimeout(() => setIsRefreshingRooms(false), 4500);
     const timer = window.setInterval(() => {
       publish();
       if (screen === "rooms") queryAction.send({ requestedAt: Date.now() });
@@ -225,10 +238,11 @@ export default function Home() {
     }, 2500);
     return () => {
       window.clearInterval(timer);
+      window.clearTimeout(refreshDoneTimer);
       if (directoryRoomRef.current === directory) directoryRoomRef.current = null;
       void directory.leave();
     };
-  }, [screen, isHost, roomCode]);
+  }, [screen, isHost, roomCode, roomRefreshKey]);
   const saveProfile = () => {
     const clean = { ...profile, name: profile.name.trim().slice(0, 12) };
     if (!clean.name) return;
@@ -486,7 +500,7 @@ export default function Home() {
         </div>
       </div>
       <div className="room-board">
-        <div className="room-board-title"><strong>열린 방</strong><span>{Object.keys(publicRooms).length} ROOMS ONLINE</span></div>
+        <div className="room-board-title"><strong>열린 방</strong><button className={isRefreshingRooms ? "refreshing" : ""} onClick={() => { setPublicRooms({}); setIsRefreshingRooms(true); setRoomRefreshKey(key => key + 1); }} disabled={isRefreshingRooms}>{isRefreshingRooms ? "찾는 중..." : "방 목록 새로고침 ↻"}</button></div>
         {Object.values(publicRooms).length > 0 ? Object.values(publicRooms).sort((a, b) => b.updatedAt - a.updatedAt).map(room => <article key={room.code} className={`public-room-row ${room.visibility}`}>
           <span className="room-live-dot" /><div className="room-row-info"><strong>{room.visibility === "private" ? "🔒 " : ""}{room.name}</strong><small>{room.hostName} · ROOM / {room.code}</small></div><b>{room.players} / 4명</b>
           {room.visibility === "private" && <input className={passwordErrors[room.code] ? "wrong" : ""} type="password" placeholder={passwordErrors[room.code] ? "비밀번호가 달라요" : "비밀번호"} value={passwordAttempts[room.code] || ""} onChange={e => { setPasswordAttempts(old => ({ ...old, [room.code]: e.target.value })); setPasswordErrors(old => ({ ...old, [room.code]: false })); }} onKeyDown={e => { if (e.key === "Enter") joinListedRoom(room); }} />}
