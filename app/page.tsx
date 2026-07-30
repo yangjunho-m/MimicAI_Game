@@ -12,7 +12,7 @@ type PublicRoom = { code: string; name: string; hostName: string; players: numbe
 type RoomMeta = { name: string; visibility: "public" | "private"; aiCount: number };
 type ChatMessage = { id: string; senderId: string; senderName: string; text: string; sentAt: number };
 type ControlMessage =
-  | { type: "start"; word: string; eliminatedIds: string[] }
+  | { type: "start"; word: string; eliminatedIds: string[]; drawEndsAt: number }
   | { type: "gallery"; drawings: Drawing[]; voteEndsAt: number }
   | { type: "result"; eliminatedId: string | null; eliminatedAiIndex?: number | null; winner?: "human" | "ai" | null };
 type PlayerStatus = "drawing" | "done" | "eliminated";
@@ -145,13 +145,32 @@ function pseudoAiSketch(word: string, aiVariant = Math.floor(Math.random() * 3))
   return canvas.toDataURL("image/png");
 }
 
-function DrawingBoard({ onSubmit, player, submitted = false }: { onSubmit: (image: string) => void; player: string; submitted?: boolean }) {
+function DrawingBoard({ onSubmit, player, submitted = false, deadline = 0 }: { onSubmit: (image: string) => void; player: string; submitted?: boolean; deadline?: number }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const drawing = useRef(false);
+  const autoSubmitted = useRef(false);
+  const onSubmitRef = useRef(onSubmit);
   const [color, setColor] = useState(COLORS[0]);
   const [width, setWidth] = useState(8);
   const history = useRef<ImageData[]>([]);
+  useEffect(() => { onSubmitRef.current = onSubmit; }, [onSubmit]);
   useEffect(() => { const canvas = ref.current!; const c = canvas.getContext("2d")!; c.fillStyle = "#fff"; c.fillRect(0, 0, canvas.width, canvas.height); }, []);
+  useEffect(() => {
+    autoSubmitted.current = false;
+    if (!deadline || submitted) return;
+    const submitAtDeadline = () => {
+      if (autoSubmitted.current || !ref.current) return;
+      autoSubmitted.current = true;
+      onSubmitRef.current(ref.current.toDataURL("image/png"));
+    };
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      submitAtDeadline();
+      return;
+    }
+    const timer = window.setTimeout(submitAtDeadline, remaining);
+    return () => window.clearTimeout(timer);
+  }, [deadline, submitted]);
   const point = (event: PointerEvent<HTMLCanvasElement>) => {
     const canvas = ref.current!, box = canvas.getBoundingClientRect();
     return { x: ((event.clientX - box.left) / box.width) * canvas.width, y: ((event.clientY - box.top) / box.height) * canvas.height };
@@ -209,6 +228,8 @@ export default function Home() {
   const [hasVoted, setHasVoted] = useState(false);
   const [voteSeconds, setVoteSeconds] = useState(10);
   const [voteDeadline, setVoteDeadline] = useState(0);
+  const [drawSeconds, setDrawSeconds] = useState(60);
+  const [drawDeadline, setDrawDeadline] = useState(0);
   const [eliminatedIds, setEliminatedIds] = useState<string[]>([]);
   const [roundEliminatedId, setRoundEliminatedId] = useState<string | null>(null);
   const [roundEliminatedAiIndex, setRoundEliminatedAiIndex] = useState<number | null>(null);
@@ -262,6 +283,13 @@ export default function Home() {
     const timer = window.setInterval(update, 250);
     return () => window.clearInterval(timer);
   }, [voteDeadline]);
+  useEffect(() => {
+    if (!drawDeadline) return;
+    const update = () => setDrawSeconds(Math.max(0, Math.ceil((drawDeadline - Date.now()) / 1000)));
+    update();
+    const timer = window.setInterval(update, 250);
+    return () => window.clearInterval(timer);
+  }, [drawDeadline]);
   useEffect(() => () => {
     if (aiTimerRef.current !== null) window.clearTimeout(aiTimerRef.current);
     aiTimersRef.current.forEach(timer => window.clearTimeout(timer));
@@ -406,6 +434,7 @@ export default function Home() {
     });
     const complete = [...humanDrawings, ...aiDrawings];
     const voteEndsAt = Date.now() + 10000;
+    setDrawDeadline(0);
     voteGateOpenRef.current = false;
     setDrawings(complete);
     setVoteSeconds(10);
@@ -517,6 +546,7 @@ export default function Home() {
     controlAction.onMessage = data => {
       if (data.type === "start") {
         voteGateOpenRef.current = false; setVoteDeadline(0);
+        setDrawDeadline(data.drawEndsAt); setDrawSeconds(Math.max(0, Math.ceil((data.drawEndsAt - Date.now()) / 1000)));
         eliminatedRef.current = data.eliminatedIds; setEliminatedIds(data.eliminatedIds);
         const statuses = Object.fromEntries(Object.keys(profilesRef.current).map(id => [id, data.eliminatedIds.includes(id) ? "eliminated" : "drawing"])) as Record<string, PlayerStatus>;
         const activeAiIndexes = Array.from({ length: aiCountRef.current }, (_, index) => index).filter(index => !eliminatedAiRef.current.includes(index));
@@ -525,7 +555,7 @@ export default function Home() {
         aiReadyRef.current = false; aiReadyCountRef.current = 0; setAiPlayerStatus("drawing"); setHasSubmitted(false); setHasVoted(false);
         wordRef.current = data.word; setWord(data.word); setDrawings([]); setSelected(""); submittedRef.current = {}; setScreen("draw");
       } else if (data.type === "gallery") {
-        setDrawings(data.drawings); setAiStatus("모든 그림이 도착했습니다!"); setHasVoted(false); setVoteDeadline(data.voteEndsAt); setScreen("vote");
+        setDrawDeadline(0); setDrawings(data.drawings); setAiStatus("모든 그림이 도착했습니다!"); setHasVoted(false); setVoteDeadline(data.voteEndsAt); setScreen("vote");
       } else {
         if (data.eliminatedId && !eliminatedRef.current.includes(data.eliminatedId)) {
           eliminatedRef.current = [...eliminatedRef.current, data.eliminatedId];
@@ -586,15 +616,16 @@ export default function Home() {
   const startOnlineGame = () => {
     if (!isHost || Object.keys(onlineProfiles).length < 2) return;
     const nextWord = randomWord(wordRef.current);
+    const drawEndsAt = Date.now() + 60000;
     const statuses = Object.fromEntries(Object.keys(onlineProfiles).map(id => [id, eliminatedRef.current.includes(id) ? "eliminated" : "drawing"])) as Record<string, PlayerStatus>;
     voteGateOpenRef.current = false; setVoteDeadline(0);
     if (voteTimerRef.current !== null) window.clearTimeout(voteTimerRef.current);
     const activeAiIndexes = Array.from({ length: aiCountRef.current }, (_, index) => index).filter(index => !eliminatedAiRef.current.includes(index));
     const aiStatuses = Object.fromEntries(activeAiIndexes.map(index => [`__ai_${index}`, "drawing"])) as Record<string, PlayerStatus>;
     setPlayerStatuses({ ...statuses, ...aiStatuses }); votesRef.current = {}; setRoundEliminatedId(null); setRoundEliminatedAiIndex(null);
-    setHasSubmitted(false); setHasVoted(false);
+    setHasSubmitted(false); setHasVoted(false); setDrawDeadline(drawEndsAt); setDrawSeconds(60);
     wordRef.current = nextWord; setWord(nextWord); setDrawings([]); setSelected(""); submittedRef.current = {}; setScreen("draw");
-    sendControlRef.current?.({ type: "start", word: nextWord, eliminatedIds: eliminatedRef.current });
+    sendControlRef.current?.({ type: "start", word: nextWord, eliminatedIds: eliminatedRef.current, drawEndsAt });
     startAiDrawing();
   };
   const chooseAiCount = (count: number) => {
@@ -640,7 +671,7 @@ export default function Home() {
     if (isHost) finishOnlineVote();
     else sendVoteRef.current?.({ id: selfId, drawingId: choice });
   };
-  const startGame = () => { setWord(randomWord(word)); setDrawings([]); setTurn(0); setSelected(""); setScreen("draw"); };
+  const startGame = () => { setWord(randomWord(word)); setDrawings([]); setTurn(0); setSelected(""); setDrawDeadline(Date.now() + 60000); setDrawSeconds(60); setScreen("draw"); };
   const submitHuman = (image: string) => {
     if (isOnline) {
       if (hasSubmitted) return;
@@ -658,7 +689,11 @@ export default function Home() {
       return;
     }
     setDrawings(old => [...old, { id: `human-${turn}`, author: `플레이어 ${turn + 1}`, image, isAI: false }]);
-    if (turn + 1 < players) setTurn(turn + 1); else setScreen("ai");
+    if (turn + 1 < players) {
+      setTurn(turn + 1); setDrawDeadline(Date.now() + 60000); setDrawSeconds(60);
+    } else {
+      setDrawDeadline(0); setScreen("ai");
+    }
   };
   const generateAI = useCallback(async () => {
     setAiStatus("AI가 펜을 고르는 중...");
@@ -748,14 +783,14 @@ export default function Home() {
       <div className="lobby-footer"><p>{Object.keys(onlineProfiles).length}명 접속 · 최소 2명 · 최대 4명</p>{isHost ? <button className="primary" disabled={Object.keys(onlineProfiles).length < 2} onClick={startOnlineGame}>게임 시작 →</button> : <span className="waiting-host">방장이 시작하기를 기다리는 중...</span>}</div>
     </section>}
     {screen === "draw" && <section className="game-screen">
-      <div className="game-top"><div><span className="round">ROUND 01</span><span className="turn">{isOnline ? `${profile.name} 그리는 중` : `플레이어 ${turn + 1} 차례`}</span></div><div className="prompt"><small>오늘의 제시어</small><strong>{word}</strong></div><div className="timer"><small>TIME LEFT</small><strong>∞</strong></div></div>
+      <div className="game-top"><div><span className="round">ROUND 01</span><span className="turn">{isOnline ? `${profile.name} 그리는 중` : `플레이어 ${turn + 1} 차례`}</span></div><div className="prompt"><small>오늘의 제시어</small><strong>{word}</strong></div><div className="timer"><small>TIME LEFT</small><strong>{`${String(Math.floor(drawSeconds / 60)).padStart(2, "0")}:${String(drawSeconds % 60).padStart(2, "0")}`}</strong></div></div>
       {isOnline && <div className="drawing-statuses">
         {Object.values(onlineProfiles).map(item => <div key={item.id} className={playerStatuses[item.id] || "drawing"}><span className={`mini-avatar ${item.shape}`} style={{ background: item.color }}>{item.face}</span><strong>{item.name}</strong><i>{playerStatuses[item.id] === "done" ? "제출 완료" : playerStatuses[item.id] === "eliminated" ? "탈락 · 투표만 가능" : "그리는 중..."}</i></div>)}
         {Array.from({ length: aiCount }, (_, index) => index).filter(index => !eliminatedAiIndexes.includes(index)).map(index => { const identity = getAiIdentity(index, word); return <div key={`ai-status-${index}`} className={playerStatuses[`__ai_${index}`] || "drawing"}><span className={`mini-avatar ${identity.shape} ai-avatar`} style={{ background: identity.color }}>{identity.face}</span><strong>{identity.name}</strong><i>{playerStatuses[`__ai_${index}`] === "done" ? "제출 완료" : "그리는 중..."}</i></div>; })}
       </div>}
       {isOnline && eliminatedIds.includes(selfId)
         ? <div className="eliminated-wait"><span>OUT</span><h2>이번 라운드는<br />그림을 그릴 수 없어요.</h2><p>다른 사람의 그림이 완성되면 투표에 참여할 수 있습니다.</p></div>
-        : <><DrawingBoard key={isOnline ? word : turn} player={isOnline ? profile.name : `플레이어 ${turn + 1}`} onSubmit={submitHuman} submitted={isOnline && hasSubmitted} /><p className="pass-note">{isOnline ? "친구들도 각자의 화면에서 동시에 그림을 그리고 있습니다." : "그림 제출 후 다음 플레이어에게 화면을 넘겨주세요. 그림은 투표 전까지 비공개입니다."}</p></>}
+        : <><DrawingBoard key={isOnline ? word : turn} player={isOnline ? profile.name : `플레이어 ${turn + 1}`} onSubmit={submitHuman} submitted={isOnline && hasSubmitted} deadline={drawDeadline} /><p className="pass-note">{isOnline ? "친구들도 각자의 화면에서 동시에 그림을 그리고 있습니다." : "그림 제출 후 다음 플레이어에게 화면을 넘겨주세요. 그림은 투표 전까지 비공개입니다."}</p></>}
     </section>}
     {screen === "ai" && <section className="loading-screen"><div className="scanner"><div className="bot-face">⌁</div><i /></div><div className="eyebrow">MACHINE AT WORK</div><h2>{aiStatus || "AI가 그림을 그리고 있어요..."}</h2><p>같은 흰 배경, 같은 펜 규칙으로 한 장을 추가합니다.</p></section>}
     {screen === "vote" && <section className="panel vote">
