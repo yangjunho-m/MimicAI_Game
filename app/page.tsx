@@ -2,6 +2,7 @@
 
 import { PointerEvent, useCallback, useEffect, useRef, useState } from "react";
 import { joinRoom, selfId } from "trystero";
+import { createRoomRecord, deleteRoomRecord, heartbeatRoom, isSupabaseConfigured, listRooms, verifyRoomPassword } from "../lib/supabaseRooms";
 
 type Screen = "profile" | "home" | "rooms" | "lobby" | "draw" | "ai" | "vote" | "result";
 type Drawing = { id: string; author: string; image: string; isAI: boolean };
@@ -169,6 +170,7 @@ export default function Home() {
   const directoryRoomRef = useRef<ReturnType<typeof joinRoom> | null>(null);
   const isHostRef = useRef(false);
   const hostedRoomRef = useRef<{ name: string; visibility: "public" | "private"; passwordHash?: string }>({ name: "", visibility: "public" });
+  const hostTokenRef = useRef("");
   const profileRef = useRef(profile);
   const wordRef = useRef(word);
   const profilesRef = useRef<Record<string, OnlineProfile>>({});
@@ -217,6 +219,34 @@ export default function Home() {
     }
   }, []);
   useEffect(() => {
+    if (!isSupabaseConfigured || screen !== "rooms") return;
+    let active = true;
+    const load = async () => {
+      setIsRefreshingRooms(true);
+      try {
+        const rooms = await listRooms();
+        if (!active) return;
+        setPublicRooms(Object.fromEntries(rooms.map(room => [room.code, {
+          code: room.code, name: room.name, hostName: room.host_name, players: room.players,
+          visibility: room.visibility, updatedAt: new Date(room.updated_at).getTime()
+        }])));
+      } finally {
+        if (active) setIsRefreshingRooms(false);
+      }
+    };
+    void load();
+    const timer = window.setInterval(load, 3000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [screen, roomRefreshKey]);
+  useEffect(() => {
+    if (!isSupabaseConfigured || screen !== "lobby" || !isHost || !hostTokenRef.current) return;
+    const beat = () => heartbeatRoom(roomCode, hostTokenRef.current, Object.keys(profilesRef.current).length).catch(() => {});
+    void beat();
+    const timer = window.setInterval(beat, 5000);
+    return () => window.clearInterval(timer);
+  }, [screen, isHost, roomCode, onlineProfiles]);
+  useEffect(() => {
+    if (isSupabaseConfigured) return;
     if (screen !== "rooms" && !(screen === "lobby" && isHost)) return;
     const directory = joinRoom(DIRECTORY_CONFIG, "PUBLIC-ROOMS");
     directoryRoomRef.current = directory;
@@ -268,18 +298,30 @@ export default function Home() {
     if (invitedRoom) connectOnline(false, invitedRoom);
     else setScreen("home");
   };
-  const createOnlineRoom = () => {
+  const createOnlineRoom = async () => {
     if (roomVisibility === "private" && !roomPassword.trim()) return;
+    const code = randomCode();
+    const hostToken = crypto.randomUUID();
+    hostTokenRef.current = hostToken;
     hostedRoomRef.current = {
       name: roomName.trim().slice(0, 20) || `${profileRef.current.name}의 방`,
       visibility: roomVisibility,
       passwordHash: roomVisibility === "private" ? hashPassword(roomPassword) : undefined
     };
     setCurrentRoomName(hostedRoomRef.current.name);
-    connectOnline(true);
+    if (isSupabaseConfigured) {
+      await createRoomRecord({
+        code, name: hostedRoomRef.current.name, hostName: profileRef.current.name,
+        visibility: roomVisibility, password: roomPassword, hostToken
+      });
+    }
+    connectOnline(true, code);
   };
-  const joinListedRoom = (room: PublicRoom) => {
-    if (room.visibility === "private" && hashPassword(passwordAttempts[room.code] || "") !== room.passwordHash) {
+  const joinListedRoom = async (room: PublicRoom) => {
+    const passwordOkay = room.visibility !== "private" || (isSupabaseConfigured
+      ? await verifyRoomPassword(room.code, passwordAttempts[room.code] || "")
+      : hashPassword(passwordAttempts[room.code] || "") === room.passwordHash);
+    if (!passwordOkay) {
       setPasswordErrors(old => ({ ...old, [room.code]: true }));
       return;
     }
@@ -436,6 +478,10 @@ export default function Home() {
     startAiDrawing();
   };
   const leaveOnline = () => {
+    if (isHostRef.current && isSupabaseConfigured && hostTokenRef.current) {
+      void deleteRoomRecord(roomCode, hostTokenRef.current);
+      hostTokenRef.current = "";
+    }
     if (aiTimerRef.current !== null) window.clearTimeout(aiTimerRef.current);
     aiTimerRef.current = null; aiReadyRef.current = false;
     if (voteTimerRef.current !== null) window.clearTimeout(voteTimerRef.current);
