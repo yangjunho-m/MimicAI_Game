@@ -7,19 +7,47 @@ const corsHeaders = {
 type Provider = "openai" | "gemini" | "cloudflare";
 
 const stylePrompts = [
-  "Use loose black ink with uneven pressure and several hesitant corrections.",
-  "Use a colored felt-tip pen with wobbly outlines, imperfect proportions, and a few overlapping strokes.",
-  "Use a thick dark marker with crooked geometry, broken curves, and casual human line variation."
+  "Use only one black ballpoint pen. Loose contour drawing, small hesitant corrections, asymmetrical and slightly cropped composition.",
+  "Use only one green felt-tip pen. Chunky minimal contour, off-center composition, distorted proportions, very few details.",
+  "Use only one orange marker pen. Naive continuous-line doodle, crooked geometry, broken curves, large empty areas."
 ];
 
 function promptFor(word: string, variation: number) {
   return [
     `Draw this subject: ${word}.`,
     "Make it look like a quick drawing made by a person using a mouse in a simple web paint program.",
-    "Pure white background. Pen strokes only. No shading, gradients, textures, realistic lighting, typography, border, frame, or signature.",
+    "Pure white background. ONE physical pen color only. Simple outline strokes only.",
+    "ABSOLUTELY NO written words, letters, Korean characters, labels, calligraphy, pen or pencil shown in the image, photograph, shading, gradients, textures, realistic lighting, typography, border, frame, or signature.",
     "Do not draw any facial expression. Avoid perfect circles, straight lines, symmetry, and polished vector shapes.",
     stylePrompts[Math.abs(variation) % stylePrompts.length]
   ].join(" ");
+}
+
+async function translateSceneForCloudflare(word: string) {
+  const token = Deno.env.get("CLOUDFLARE_API_TOKEN");
+  const accountId = Deno.env.get("CLOUDFLARE_ACCOUNT_ID");
+  if (!token || !accountId) throw new Error("Cloudflare secrets are missing");
+  const response = await fetch(
+    `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/meta/llama-3.1-8b-instruct`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messages: [
+          {
+            role: "system",
+            content: "Translate the Korean drawing topic into one concise concrete English visual scene. Return English only. Never copy Korean text. Never mention typography, labels, signs, writing, pens, pencils, paper, or art tools."
+          },
+          { role: "user", content: word }
+        ],
+        max_tokens: 100
+      })
+    }
+  );
+  const data = await response.json();
+  const translated = data?.result?.response?.trim();
+  if (!response.ok || !translated) throw new Error(data?.errors?.[0]?.message || `Cloudflare translation ${response.status}`);
+  return translated.replace(/[가-힣ㄱ-ㅎㅏ-ㅣ]/g, "").trim();
 }
 
 async function openAiImage(prompt: string) {
@@ -115,7 +143,8 @@ Deno.serve(async request => {
       return Response.json({ error: "Invalid request" }, { status: 400, headers: corsHeaders });
     }
 
-    const prompt = promptFor(word, variation);
+    const visualSubject = provider === "cloudflare" ? await translateSceneForCloudflare(word) : word;
+    const prompt = promptFor(visualSubject, variation);
     const seed = Math.abs([...`${word}-${variation}-${Date.now()}`].reduce((sum, char) => ((sum * 31) + char.charCodeAt(0)) | 0, 7));
     const image = provider === "openai"
       ? await openAiImage(prompt)
