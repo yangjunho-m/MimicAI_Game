@@ -2,10 +2,14 @@
 
 import { PointerEvent, useCallback, useEffect, useRef, useState } from "react";
 
-type Screen = "home" | "lobby" | "draw" | "ai" | "vote" | "result";
+type Screen = "profile" | "home" | "lobby" | "draw" | "ai" | "vote" | "result";
 type Drawing = { id: string; author: string; image: string; isAI: boolean };
+type Profile = { name: string; color: string; face: string; shape: string };
 const WORDS = ["우주에서 라면을 먹는 고양이", "비 오는 날의 놀이공원", "춤추는 선인장", "달에 간 붕어빵"];
 const COLORS = ["#171717", "#ff5d3b", "#6e56cf", "#168c73", "#f4b400"];
+const AVATAR_COLORS = ["#ff5d3b", "#6e56cf", "#168c73", "#f4b400", "#ef8eb8", "#58a6d8"];
+const FACES = ["•ᴗ•", "¬‿¬", "•̀ᴗ•́", "◕‿◕", "×‿×", "•_•"];
+const SHAPES = ["round", "square", "blob"];
 const randomCode = () => Math.random().toString(36).slice(2, 6).toUpperCase();
 
 function pseudoAiSketch(word: string) {
@@ -87,7 +91,8 @@ function DrawingBoard({ onSubmit, player }: { onSubmit: (image: string) => void;
 }
 
 export default function Home() {
-  const [screen, setScreen] = useState<Screen>("home");
+  const [screen, setScreen] = useState<Screen>("profile");
+  const [profile, setProfile] = useState<Profile>({ name: "", color: AVATAR_COLORS[0], face: FACES[0], shape: SHAPES[0] });
   const [room] = useState(randomCode);
   const [players, setPlayers] = useState(2);
   const [turn, setTurn] = useState(0);
@@ -96,6 +101,19 @@ export default function Home() {
   const [aiStatus, setAiStatus] = useState("");
   const [selected, setSelected] = useState("");
   const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    const saved = window.localStorage.getItem("mimic-profile");
+    if (saved) {
+      try { setProfile(JSON.parse(saved)); setScreen("home"); } catch { /* 새 프로필 생성 */ }
+    }
+  }, []);
+  const saveProfile = () => {
+    const clean = { ...profile, name: profile.name.trim().slice(0, 12) };
+    if (!clean.name) return;
+    window.localStorage.setItem("mimic-profile", JSON.stringify(clean));
+    setProfile(clean);
+    setScreen("home");
+  };
   const startGame = () => { setWord(WORDS[Math.floor(Math.random() * WORDS.length)]); setDrawings([]); setTurn(0); setSelected(""); setScreen("draw"); };
   const submitHuman = (image: string) => {
     setDrawings(old => [...old, { id: `human-${turn}`, author: `플레이어 ${turn + 1}`, image, isAI: false }]);
@@ -121,11 +139,38 @@ export default function Home() {
   const fooled = picked ? !picked.isAI : false;
 
   return <main>
-    <header className="site-header"><button className="brand" onClick={() => setScreen("home")}><span className="brand-dot" /> MIMIC<span>.AI</span></button></header>
+    <header className="site-header">
+      <button className="brand" onClick={() => setScreen(profile.name ? "home" : "profile")}><span className="brand-dot" /> MIMIC<span>.AI</span></button>
+      {profile.name && <button className="profile-chip" onClick={() => setScreen("profile")} aria-label="프로필 수정">
+        <span className={`mini-avatar ${profile.shape}`} style={{ background: profile.color }}>{profile.face}</span>
+        <strong>{profile.name}</strong><small>EDIT</small>
+      </button>}
+    </header>
+    {screen === "profile" && <section className="profile-screen">
+      <div className="profile-intro">
+        <div className="eyebrow"><span>00</span> CREATE YOUR HUMAN</div>
+        <h1>당신은<br /><em>누구인가요?</em></h1>
+        <p>게임에서 사용할 이름과 캐릭터를 만드세요.<br />정체는 인간이지만, 그림만큼은 AI처럼.</p>
+        <div className="profile-note"><span>!</span><p>프로필은 이 기기에만 저장되며<br />언제든 오른쪽 위에서 수정할 수 있어요.</p></div>
+      </div>
+      <div className="creator-card">
+        <div className="avatar-stage">
+          <div className={`avatar-preview ${profile.shape}`} style={{ background: profile.color }}>
+            <span>{profile.face}</span><i /><b />
+          </div>
+          <span className="avatar-shadow" />
+        </div>
+        <label className="name-field"><span>PLAYER NAME</span><input autoFocus maxLength={12} placeholder="이름을 입력하세요" value={profile.name} onChange={e => setProfile({ ...profile, name: e.target.value })} onKeyDown={e => { if (e.key === "Enter") saveProfile(); }} /></label>
+        <div className="creator-section"><span className="creator-label">BODY COLOR</span><div className="avatar-options">{AVATAR_COLORS.map(color => <button key={color} className={`avatar-color ${profile.color === color ? "active" : ""}`} style={{ background: color }} onClick={() => setProfile({ ...profile, color })} aria-label={`캐릭터 색상 ${color}`} />)}</div></div>
+        <div className="creator-section"><span className="creator-label">FACE</span><div className="face-options">{FACES.map(face => <button key={face} className={profile.face === face ? "active" : ""} onClick={() => setProfile({ ...profile, face })}>{face}</button>)}</div></div>
+        <div className="creator-section"><span className="creator-label">SHAPE</span><div className="shape-options">{SHAPES.map((shape, index) => <button key={shape} className={profile.shape === shape ? "active" : ""} onClick={() => setProfile({ ...profile, shape })}><i className={shape} />{["동글", "네모", "말랑"][index]}</button>)}</div></div>
+        <button className="primary profile-submit" disabled={!profile.name.trim()} onClick={saveProfile}>이 캐릭터로 시작 →</button>
+      </div>
+    </section>}
     {screen === "home" && <section className="hero">
       <div className="eyebrow"><span>01</span> DRAW LIKE A MACHINE</div>
       <h1>사람인 걸<br /><em>들키지 마.</em></h1>
-      <p className="hero-copy">당신은 사람입니다. 하지만 오늘만큼은 AI처럼 그리세요.<br />서로의 그림 사이에 숨은 진짜 AI를 찾아내는 드로잉 블러핑 게임.</p>
+      <p className="hero-copy"><strong>{profile.name}</strong>님은 사람입니다. 하지만 오늘만큼은 AI처럼 그리세요.<br />서로의 그림 사이에 숨은 진짜 AI를 찾아내는 드로잉 블러핑 게임.</p>
       <div className="hero-actions"><button className="primary" onClick={() => setScreen("lobby")}>새 게임 만들기 <span>↗</span></button><button className="secondary" onClick={() => { setPlayers(2); startGame(); }}>2인 빠른 데모</button></div>
       <div className="how-grid"><article><b>01</b><strong>같은 제시어</strong><p>모두에게 하나의 기묘한 제시어가 공개됩니다.</p></article><article><b>02</b><strong>사람처럼? AI처럼!</strong><p>색과 굵기만으로 AI 같은 그림을 완성하세요.</p></article><article><b>03</b><strong>속이고 찾아내기</strong><p>진짜 AI 그림에 투표하고 정체를 공개합니다.</p></article></div>
       <div className="hero-orbit" aria-hidden="true"><span>HUMAN?</span><span>AI?</span><i /></div>
