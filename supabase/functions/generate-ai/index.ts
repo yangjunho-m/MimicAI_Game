@@ -9,7 +9,7 @@ type Provider = "openai" | "gemini" | "cloudflare";
 const stylePrompts = [
   "Use only one black ballpoint pen. Loose contour drawing, small hesitant corrections, asymmetrical and slightly cropped composition.",
   "Use only one green felt-tip pen. Chunky minimal contour, off-center composition, distorted proportions, very few details.",
-  "Use only one orange marker pen. Naive continuous-line doodle, crooked geometry, broken curves, large empty areas."
+  "Use only one orange marker pen. Draw badly like an unskilled person using a slippery computer mouse: inaccurate proportions, visibly shaky angular curves, awkward overlaps, missed connections, accidental overshoots, incomplete objects, and large empty areas. Use fewer than 18 crude strokes. The result must look clumsy, rushed, and amateur, never polished."
 ];
 
 function promptFor(word: string, variation: number) {

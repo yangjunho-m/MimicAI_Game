@@ -41,23 +41,39 @@ async function forceSinglePenStyle(source: string, aiIndex: number) {
   outputContext.fillStyle = "#fff";
   outputContext.fillRect(0, 0, output.width, output.height);
   outputContext.fillStyle = providerInk[aiIndex % providerInk.length];
+  const isCloudflare = aiIndex % providers.length === 2;
+  const samplingStep = isCloudflare ? 4 : 2;
+  const contrastLimit = isCloudflare ? 72 : 54;
 
   // Convert every provider's raster output into one uneven, single-color pen.
-  for (let y = 2; y < height - 2; y += 2) {
-    for (let x = 2; x < width - 2; x += 2) {
-      const center = y * width + x;
+  for (let y = 3; y < height - 3; y += samplingStep) {
+    for (let x = 3; x < width - 3; x += samplingStep) {
+      const warpedX = isCloudflare
+        ? Math.max(2, Math.min(width - 3, Math.round(x + Math.sin(y * 0.055) * 7 + Math.sin(y * 0.013) * 5)))
+        : x;
+      const warpedY = isCloudflare
+        ? Math.max(2, Math.min(height - 3, Math.round(y + Math.sin(x * 0.047) * 5)))
+        : y;
+      const center = warpedY * width + warpedX;
       const horizontal = Math.abs(gray[center + 1] - gray[center - 1]);
       const vertical = Math.abs(gray[center + width] - gray[center - width]);
       const contrast = horizontal + vertical;
-      if (contrast > 54 && gray[center] < 248) {
-        const jitterX = ((x * 17 + y * 7 + aiIndex * 11) % 3) - 1;
-        const jitterY = ((x * 5 + y * 13 + aiIndex * 19) % 3) - 1;
+      const noise = Math.abs((x * 37 + y * 53 + aiIndex * 97) % 100);
+      if (contrast > contrastLimit && gray[center] < 248 && (!isCloudflare || noise > 27)) {
+        const jitterRange = isCloudflare ? 13 : 3;
+        const jitterX = ((x * 17 + y * 7 + aiIndex * 11) % jitterRange) - Math.floor(jitterRange / 2);
+        const jitterY = ((x * 5 + y * 13 + aiIndex * 19) % jitterRange) - Math.floor(jitterRange / 2);
+        const targetX = Math.round((x / width) * output.width + jitterX);
+        const targetY = Math.round((y / height) * output.height + jitterY);
         outputContext.fillRect(
-          Math.round((x / width) * output.width + jitterX),
-          Math.round((y / height) * output.height + jitterY),
-          3 + ((x + y) % 2),
-          3
+          targetX,
+          targetY,
+          isCloudflare ? 5 + (noise % 3) : 3 + ((x + y) % 2),
+          isCloudflare ? 3 + (noise % 2) : 3
         );
+        if (isCloudflare && noise > 91) {
+          outputContext.fillRect(targetX + 5, targetY - 4, 8, 3);
+        }
       }
     }
   }
