@@ -30,10 +30,20 @@ const COLORS = ["#171717", "#ff5d3b", "#6e56cf", "#168c73", "#f4b400"];
 const AVATAR_COLORS = ["#ff5d3b", "#6e56cf", "#168c73", "#f4b400", "#ef8eb8", "#58a6d8"];
 const FACES = ["•ᴗ•", "¬‿¬", "•̀ᴗ•́", "◕‿◕", "×‿×", "•_•"];
 const SHAPES = ["round", "square", "blob"];
+const AI_NAMES = ["짹짹이", "몽실이", "토토", "삐약이", "콩콩이", "두부", "후추", "보리", "단추"];
 const randomCode = () => Math.random().toString(36).slice(2, 6).toUpperCase();
 const randomWord = (previous = "") => {
   const candidates = WORDS.filter(item => item !== previous);
   return candidates[Math.floor(Math.random() * candidates.length)];
+};
+const getAiIdentity = (index: number, roundWord: string) => {
+  const seed = [...roundWord].reduce((sum, char) => sum + char.charCodeAt(0), 0) + index * 17;
+  return {
+    name: AI_NAMES[(seed + index * 3) % AI_NAMES.length],
+    color: AVATAR_COLORS[(seed + index) % AVATAR_COLORS.length],
+    face: FACES[(seed + index * 2) % FACES.length],
+    shape: SHAPES[(seed + index) % SHAPES.length]
+  };
 };
 const hashPassword = (value: string) => [...value].reduce((hash, char) => ((hash * 31) + char.charCodeAt(0)) >>> 0, 2166136261).toString(36);
 const DIRECTORY_CONFIG = {
@@ -390,10 +400,10 @@ export default function Home() {
     const activeCount = Object.keys(profilesRef.current).filter(id => !eliminatedRef.current.includes(id)).length;
     const activeAiIndexes = Array.from({ length: aiCountRef.current }, (_, index) => index).filter(index => !eliminatedAiRef.current.includes(index));
     if (humanDrawings.length < activeCount || aiReadyCountRef.current < activeAiIndexes.length) return;
-    const aiDrawings: Drawing[] = activeAiIndexes.map(index => ({
-      id: `ai-${index}`, author: `MIMIC BOT ${index + 1}`,
-      image: pseudoAiSketch(wordRef.current, index), isAI: true
-    }));
+    const aiDrawings: Drawing[] = activeAiIndexes.map(index => {
+      const identity = getAiIdentity(index, wordRef.current);
+      return { id: `ai-${index}`, author: identity.name, image: pseudoAiSketch(wordRef.current, index), isAI: true };
+    });
     const complete = [...humanDrawings, ...aiDrawings];
     const voteEndsAt = Date.now() + 10000;
     voteGateOpenRef.current = false;
@@ -741,7 +751,7 @@ export default function Home() {
       <div className="game-top"><div><span className="round">ROUND 01</span><span className="turn">{isOnline ? `${profile.name} 그리는 중` : `플레이어 ${turn + 1} 차례`}</span></div><div className="prompt"><small>오늘의 제시어</small><strong>{word}</strong></div><div className="timer"><small>TIME LEFT</small><strong>∞</strong></div></div>
       {isOnline && <div className="drawing-statuses">
         {Object.values(onlineProfiles).map(item => <div key={item.id} className={playerStatuses[item.id] || "drawing"}><span className={`mini-avatar ${item.shape}`} style={{ background: item.color }}>{item.face}</span><strong>{item.name}</strong><i>{playerStatuses[item.id] === "done" ? "제출 완료" : playerStatuses[item.id] === "eliminated" ? "탈락 · 투표만 가능" : "그리는 중..."}</i></div>)}
-        {Array.from({ length: aiCount }, (_, index) => index).filter(index => !eliminatedAiIndexes.includes(index)).map(index => <div key={`ai-status-${index}`} className={playerStatuses[`__ai_${index}`] || "drawing"}><span className="mini-avatar round ai-avatar">AI</span><strong>MIMIC BOT {index + 1}</strong><i>{playerStatuses[`__ai_${index}`] === "done" ? "제출 완료" : "그리는 중..."}</i></div>)}
+        {Array.from({ length: aiCount }, (_, index) => index).filter(index => !eliminatedAiIndexes.includes(index)).map(index => { const identity = getAiIdentity(index, word); return <div key={`ai-status-${index}`} className={playerStatuses[`__ai_${index}`] || "drawing"}><span className={`mini-avatar ${identity.shape} ai-avatar`} style={{ background: identity.color }}>{identity.face}</span><strong>{identity.name}</strong><i>{playerStatuses[`__ai_${index}`] === "done" ? "제출 완료" : "그리는 중..."}</i></div>; })}
       </div>}
       {isOnline && eliminatedIds.includes(selfId)
         ? <div className="eliminated-wait"><span>OUT</span><h2>이번 라운드는<br />그림을 그릴 수 없어요.</h2><p>다른 사람의 그림이 완성되면 투표에 참여할 수 있습니다.</p></div>
@@ -755,7 +765,7 @@ export default function Home() {
       <div className="vote-submit"><span>{isOnline && voteSeconds > 0 ? `결과 공개까지 ${voteSeconds}초` : selected ? "선택 완료. 이 그림의 주인에게 투표합니다." : "탈락시킬 사람의 그림을 선택하세요."}</span><div className="vote-actions">{isOnline && <button className="skip-button" disabled={hasVoted} onClick={() => submitOnlineVote("__skip__")}>투표 건너뛰기</button>}<button className="primary" disabled={!selected || (isOnline && hasVoted)} onClick={isOnline ? () => submitOnlineVote() : () => setScreen("result")}>{isOnline && hasVoted ? "투표 완료 ✓" : "투표 완료 →"}</button></div></div>
     </section>}
     {screen === "result" && (isOnline || picked) && <section className="result-screen">
-      <div className="result-copy"><div className="eyebrow">VOTE RESULT</div><h2>{gameWinner ? <>{gameWinner === "human" ? "인간" : "AI"}<br /><em>승리</em></> : isOnline ? (roundEliminatedId ? <>{onlineProfiles[roundEliminatedId]?.name || "한 사람"}<br /><em>탈락입니다.</em></> : roundEliminatedAiIndex !== null ? <>MIMIC BOT {roundEliminatedAiIndex + 1}<br /><em>제거 완료</em></> : <>이번에는<br /><em>아무도 죽지 않았습니다.</em></>) : (fooled ? <>완벽하게<br /><em>속았습니다.</em></> : <>정확하게<br /><em>찾았습니다.</em></>)}</h2><p>{gameWinner ? "3초 후 대기실로 돌아갑니다." : isOnline ? (roundEliminatedId ? "가장 많은 표를 받았습니다. 다음 라운드부터 그림은 그릴 수 없지만 투표에는 계속 참여합니다." : roundEliminatedAiIndex !== null ? "AI 한 명을 찾아 제거했습니다." : "동률 또는 건너뛰기로 이번 라운드에는 탈락자가 없습니다.") : (fooled ? `${picked?.author}의 그림은 사람이 그렸습니다. AI처럼 보이는 데 성공했네요.` : "선택한 그림은 MIMIC BOT이 그린 진짜 AI 그림입니다.")}</p>{!gameWinner && (!isOnline || isHost ? <button className="primary" onClick={isOnline ? startOnlineGame : startGame}>다음 라운드 →</button> : <span className="waiting-host">방장이 다음 라운드를 준비 중...</span>)}</div>
+      <div className="result-copy"><div className="eyebrow">VOTE RESULT</div><h2>{gameWinner ? <>{gameWinner === "human" ? "인간" : "AI"}<br /><em>승리</em></> : isOnline ? (roundEliminatedId ? <>{onlineProfiles[roundEliminatedId]?.name || "한 사람"}<br /><em>탈락입니다.</em></> : roundEliminatedAiIndex !== null ? <>{getAiIdentity(roundEliminatedAiIndex, word).name}<br /><em>제거 완료</em></> : <>이번에는<br /><em>아무도 죽지 않았습니다.</em></>) : (fooled ? <>완벽하게<br /><em>속았습니다.</em></> : <>정확하게<br /><em>찾았습니다.</em></>)}</h2><p>{gameWinner ? "3초 후 대기실로 돌아갑니다." : isOnline ? (roundEliminatedId ? "가장 많은 표를 받았습니다. 다음 라운드부터 그림은 그릴 수 없지만 투표에는 계속 참여합니다." : roundEliminatedAiIndex !== null ? "AI 한 명을 찾아 제거했습니다." : "동률 또는 건너뛰기로 이번 라운드에는 탈락자가 없습니다.") : (fooled ? `${picked?.author}의 그림은 사람이 그렸습니다. AI처럼 보이는 데 성공했네요.` : "선택한 그림은 AI가 그린 그림입니다.")}</p>{!gameWinner && (!isOnline || isHost ? <button className="primary" onClick={isOnline ? startOnlineGame : startGame}>다음 라운드 →</button> : <span className="waiting-host">방장이 다음 라운드를 준비 중...</span>)}</div>
       <div className={`reveal-stack ${drawings.length >= 5 ? "many" : ""}`}>{drawings.map(item => <article key={item.id} className={item.id === selected ? "picked" : ""}><img src={item.image} alt={`${item.author}의 그림`} /><div><span>{item.isAI ? "AI" : "HUMAN"}</span><strong>{item.author}</strong>{item.id === selected && <b>YOUR PICK</b>}</div></article>)}</div>
     </section>}
     <footer><span>MIMIC.AI / 2026</span></footer>
