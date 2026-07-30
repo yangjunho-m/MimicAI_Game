@@ -1,10 +1,15 @@
 "use client";
 
 import { PointerEvent, useCallback, useEffect, useRef, useState } from "react";
+import { joinRoom, selfId } from "trystero";
 
 type Screen = "profile" | "home" | "lobby" | "draw" | "ai" | "vote" | "result";
 type Drawing = { id: string; author: string; image: string; isAI: boolean };
 type Profile = { name: string; color: string; face: string; shape: string };
+type OnlineProfile = Profile & { id: string; host?: boolean };
+type ControlMessage =
+  | { type: "start"; word: string }
+  | { type: "gallery"; drawings: Drawing[] };
 const WORDS = ["우주에서 라면을 먹는 고양이", "비 오는 날의 놀이공원", "춤추는 선인장", "달에 간 붕어빵"];
 const COLORS = ["#171717", "#ff5d3b", "#6e56cf", "#168c73", "#f4b400"];
 const AVATAR_COLORS = ["#ff5d3b", "#6e56cf", "#168c73", "#f4b400", "#ef8eb8", "#58a6d8"];
@@ -93,7 +98,12 @@ function DrawingBoard({ onSubmit, player }: { onSubmit: (image: string) => void;
 export default function Home() {
   const [screen, setScreen] = useState<Screen>("profile");
   const [profile, setProfile] = useState<Profile>({ name: "", color: AVATAR_COLORS[0], face: FACES[0], shape: SHAPES[0] });
-  const [room] = useState(randomCode);
+  const [roomCode, setRoomCode] = useState(randomCode);
+  const [joinCode, setJoinCode] = useState("");
+  const [isOnline, setIsOnline] = useState(false);
+  const [isHost, setIsHost] = useState(false);
+  const [onlineProfiles, setOnlineProfiles] = useState<Record<string, OnlineProfile>>({});
+  const [connectionText, setConnectionText] = useState("연결 중...");
   const [players, setPlayers] = useState(2);
   const [turn, setTurn] = useState(0);
   const [drawings, setDrawings] = useState<Drawing[]>([]);
@@ -101,21 +111,124 @@ export default function Home() {
   const [aiStatus, setAiStatus] = useState("");
   const [selected, setSelected] = useState("");
   const [copied, setCopied] = useState(false);
+  const p2pRoomRef = useRef<ReturnType<typeof joinRoom> | null>(null);
+  const profileRef = useRef(profile);
+  const wordRef = useRef(word);
+  const profilesRef = useRef<Record<string, OnlineProfile>>({});
+  const submittedRef = useRef<Record<string, Drawing>>({});
+  const sendProfileRef = useRef<((data: OnlineProfile, options?: { target?: string }) => Promise<void>) | null>(null);
+  const sendControlRef = useRef<((data: ControlMessage, options?: { target?: string }) => Promise<void>) | null>(null);
+  const sendDrawingRef = useRef<((data: Drawing, options?: { target?: string }) => Promise<void>) | null>(null);
+  useEffect(() => { profileRef.current = profile; }, [profile]);
+  useEffect(() => { wordRef.current = word; }, [word]);
+  useEffect(() => { profilesRef.current = onlineProfiles; }, [onlineProfiles]);
+  useEffect(() => () => { void p2pRoomRef.current?.leave(); }, []);
   useEffect(() => {
     const saved = window.localStorage.getItem("mimic-profile");
     if (saved) {
-      try { setProfile(JSON.parse(saved)); setScreen("home"); } catch { /* 새 프로필 생성 */ }
+      try {
+        const savedProfile = JSON.parse(saved) as Profile;
+        setProfile(savedProfile); profileRef.current = savedProfile;
+        const invitedRoom = new URLSearchParams(window.location.search).get("room");
+        if (invitedRoom) window.setTimeout(() => connectOnline(false, invitedRoom), 0);
+        else setScreen("home");
+      } catch { /* 새 프로필 생성 */ }
     }
   }, []);
   const saveProfile = () => {
     const clean = { ...profile, name: profile.name.trim().slice(0, 12) };
     if (!clean.name) return;
     window.localStorage.setItem("mimic-profile", JSON.stringify(clean));
-    setProfile(clean);
+    setProfile(clean); profileRef.current = clean;
+    const invitedRoom = new URLSearchParams(window.location.search).get("room");
+    if (invitedRoom) connectOnline(false, invitedRoom);
+    else setScreen("home");
+  };
+  const finishOnlineRound = useCallback(() => {
+    const humanDrawings = Object.values(submittedRef.current);
+    if (humanDrawings.length < Object.keys(profilesRef.current).length) return;
+    const aiDrawing: Drawing = { id: `ai-${Date.now()}`, author: "MIMIC BOT", image: pseudoAiSketch(wordRef.current), isAI: true };
+    const complete = [...humanDrawings, aiDrawing];
+    setDrawings(complete);
+    setAiStatus("모든 그림이 도착했습니다!");
+    sendControlRef.current?.({ type: "gallery", drawings: complete });
+    window.setTimeout(() => setScreen("vote"), 450);
+  }, []);
+  const connectOnline = (host: boolean, requestedCode?: string) => {
+    p2pRoomRef.current?.leave();
+    const code = (requestedCode || randomCode()).trim().toUpperCase();
+    if (code.length < 4) return;
+    setRoomCode(code); setIsOnline(true); setIsHost(host); setConnectionText("친구를 기다리는 중...");
+    const mine: OnlineProfile = { ...profileRef.current, id: selfId, host };
+    const initial = { [selfId]: mine };
+    setOnlineProfiles(initial); profilesRef.current = initial;
+    const p2pRoom = joinRoom({ appId: "mimic-ai-game-2026-v1" }, code);
+    p2pRoomRef.current = p2pRoom;
+    const profileAction = p2pRoom.makeAction<OnlineProfile>("profile");
+    const controlAction = p2pRoom.makeAction<ControlMessage>("control");
+    const drawingAction = p2pRoom.makeAction<Drawing>("drawing");
+    sendProfileRef.current = profileAction.send;
+    sendControlRef.current = controlAction.send;
+    sendDrawingRef.current = drawingAction.send;
+    profileAction.onMessage = data => {
+      setOnlineProfiles(old => {
+        const next = { ...old, [data.id]: data };
+        profilesRef.current = next;
+        return next;
+      });
+      setConnectionText("실시간 연결됨");
+    };
+    controlAction.onMessage = data => {
+      if (data.type === "start") {
+        wordRef.current = data.word; setWord(data.word); setDrawings([]); setSelected(""); submittedRef.current = {}; setScreen("draw");
+      } else {
+        setDrawings(data.drawings); setAiStatus("모든 그림이 도착했습니다!"); setScreen("vote");
+      }
+    };
+    drawingAction.onMessage = (data, context) => {
+      if (!host) return;
+      submittedRef.current[context.peerId] = data;
+      finishOnlineRound();
+    };
+    p2pRoom.onPeerJoin = peerId => {
+      profileAction.send(mine, { target: peerId });
+      setConnectionText("실시간 연결됨");
+    };
+    p2pRoom.onPeerLeave = peerId => {
+      setOnlineProfiles(old => {
+        const next = { ...old }; delete next[peerId]; profilesRef.current = next; return next;
+      });
+    };
+    setScreen("lobby");
+  };
+  const startOnlineGame = () => {
+    if (!isHost || Object.keys(onlineProfiles).length < 2) return;
+    const nextWord = WORDS[Math.floor(Math.random() * WORDS.length)];
+    wordRef.current = nextWord; setWord(nextWord); setDrawings([]); setSelected(""); submittedRef.current = {}; setScreen("draw");
+    sendControlRef.current?.({ type: "start", word: nextWord });
+  };
+  const leaveOnline = () => {
+    void p2pRoomRef.current?.leave();
+    p2pRoomRef.current = null; setIsOnline(false); setIsHost(false); setOnlineProfiles({});
+    window.history.replaceState({}, "", window.location.pathname);
     setScreen("home");
   };
   const startGame = () => { setWord(WORDS[Math.floor(Math.random() * WORDS.length)]); setDrawings([]); setTurn(0); setSelected(""); setScreen("draw"); };
   const submitHuman = (image: string) => {
+    if (isOnline) {
+      const mine: Drawing = { id: `human-${selfId}`, author: profile.name, image, isAI: false };
+      if (isHost) {
+        submittedRef.current[selfId] = mine;
+        setDrawings(Object.values(submittedRef.current));
+        setScreen("ai");
+        finishOnlineRound();
+      } else {
+        sendDrawingRef.current?.(mine);
+        setScreen("ai");
+        setAiStatus("다른 플레이어의 그림을 기다리는 중...");
+      }
+      return;
+    }
     setDrawings(old => [...old, { id: `human-${turn}`, author: `플레이어 ${turn + 1}`, image, isAI: false }]);
     if (turn + 1 < players) setTurn(turn + 1); else setScreen("ai");
   };
@@ -133,7 +246,7 @@ export default function Home() {
     }
     window.setTimeout(() => setScreen("vote"), 550);
   }, [word]);
-  useEffect(() => { if (screen === "ai") generateAI(); }, [screen, generateAI]);
+  useEffect(() => { if (screen === "ai" && !isOnline) generateAI(); }, [screen, generateAI, isOnline]);
   const gallery = [...drawings].sort((a, b) => a.id.localeCompare(b.id));
   const picked = drawings.find(item => item.id === selected);
   const fooled = picked ? !picked.isAI : false;
@@ -170,19 +283,20 @@ export default function Home() {
       <div className="eyebrow"><span>01</span> DRAW LIKE A MACHINE</div>
       <h1>사람인 걸<br /><em>들키지 마.</em></h1>
       <p className="hero-copy"><strong>{profile.name}</strong>님은 사람입니다. 하지만 오늘만큼은 AI처럼 그리세요.<br />서로의 그림 사이에 숨은 진짜 AI를 찾아내는 드로잉 블러핑 게임.</p>
-      <div className="hero-actions"><button className="primary" onClick={() => setScreen("lobby")}>새 게임 만들기 <span>↗</span></button><button className="secondary" onClick={() => { setPlayers(2); startGame(); }}>2인 빠른 데모</button></div>
+      <div className="hero-actions"><button className="primary" onClick={() => connectOnline(true)}>온라인 방 만들기 <span>↗</span></button><button className="secondary" onClick={() => { setIsOnline(false); setPlayers(2); startGame(); }}>한 기기 데모</button></div>
+      <div className="join-room"><span>친구 방에 참여</span><div><input value={joinCode} maxLength={6} placeholder="초대 코드" onChange={e => setJoinCode(e.target.value.toUpperCase())} onKeyDown={e => { if (e.key === "Enter") connectOnline(false, joinCode); }} /><button onClick={() => connectOnline(false, joinCode)} disabled={joinCode.trim().length < 4}>입장 →</button></div></div>
       <div className="how-grid"><article><b>01</b><strong>같은 제시어</strong><p>모두에게 하나의 기묘한 제시어가 공개됩니다.</p></article><article><b>02</b><strong>사람처럼? AI처럼!</strong><p>색과 굵기만으로 AI 같은 그림을 완성하세요.</p></article><article><b>03</b><strong>속이고 찾아내기</strong><p>진짜 AI 그림에 투표하고 정체를 공개합니다.</p></article></div>
       <div className="hero-orbit" aria-hidden="true"><span>HUMAN?</span><span>AI?</span><i /></div>
     </section>}
     {screen === "lobby" && <section className="panel lobby">
-      <div className="section-top"><span>ROOM / {room}</span><span className="status-pill">대기 중</span></div>
-      <div className="lobby-title"><div><div className="eyebrow"><span>02</span> ASSEMBLE HUMANS</div><h2>들키지 않을<br />사람을 모으세요.</h2></div><div className="room-card"><span>초대 코드</span><strong>{room}</strong><button onClick={() => { navigator.clipboard?.writeText(room); setCopied(true); }}>{copied ? "복사 완료 ✓" : "코드 복사"}</button></div></div>
-      <div className="players">{Array.from({ length: players }).map((_, index) => <div className="player-card" key={index}><span>P{index + 1}</span><div><strong>플레이어 {index + 1}</strong><small>{index === 0 ? "방장 · 준비 완료" : "게스트 · 준비 완료"}</small></div><i>READY</i></div>)}{players < 4 && <button className="add-player" onClick={() => setPlayers(players + 1)}>＋ 데모 플레이어 추가</button>}</div>
-      <div className="lobby-footer"><p>최소 2명 · 최대 4명 · 총 1라운드</p><button className="primary" onClick={startGame}>게임 시작 →</button></div>
+      <div className="section-top"><span>ROOM / {roomCode}</span><span className="status-pill">{connectionText}</span></div>
+      <div className="lobby-title"><div><div className="eyebrow"><span>02</span> ASSEMBLE HUMANS</div><h2>들키지 않을<br />사람을 모으세요.</h2></div><div className="room-card"><span>초대 코드</span><strong>{roomCode}</strong><button onClick={() => { navigator.clipboard?.writeText(`${location.origin}${location.pathname}?room=${roomCode}`); setCopied(true); }}>{copied ? "초대 링크 복사 완료 ✓" : "초대 링크 복사"}</button></div></div>
+      <div className="players">{Object.values(onlineProfiles).map((item, index) => <div className="player-card" key={item.id}><span className={`mini-avatar ${item.shape}`} style={{ background: item.color }}>{item.face}</span><div><strong>{item.name}</strong><small>{item.host ? "방장" : "게스트"} · 실시간 접속</small></div><i>READY</i></div>)}{Object.keys(onlineProfiles).length < 2 && <div className="add-player">초대 링크를 친구에게 보내세요</div>}</div>
+      <div className="lobby-footer"><p>{Object.keys(onlineProfiles).length}명 접속 · 최소 2명 · 최대 4명</p>{isHost ? <button className="primary" disabled={Object.keys(onlineProfiles).length < 2} onClick={startOnlineGame}>게임 시작 →</button> : <span className="waiting-host">방장이 시작하기를 기다리는 중...</span>}</div>
     </section>}
     {screen === "draw" && <section className="game-screen">
-      <div className="game-top"><div><span className="round">ROUND 01</span><span className="turn">플레이어 {turn + 1} 차례</span></div><div className="prompt"><small>오늘의 제시어</small><strong>{word}</strong></div><div className="timer"><small>TIME LEFT</small><strong>∞</strong></div></div>
-      <DrawingBoard key={turn} player={`플레이어 ${turn + 1}`} onSubmit={submitHuman} /><p className="pass-note">그림 제출 후 다음 플레이어에게 화면을 넘겨주세요. 그림은 투표 전까지 비공개입니다.</p>
+      <div className="game-top"><div><span className="round">ROUND 01</span><span className="turn">{isOnline ? `${profile.name} 그리는 중` : `플레이어 ${turn + 1} 차례`}</span></div><div className="prompt"><small>오늘의 제시어</small><strong>{word}</strong></div><div className="timer"><small>TIME LEFT</small><strong>∞</strong></div></div>
+      <DrawingBoard key={isOnline ? word : turn} player={isOnline ? profile.name : `플레이어 ${turn + 1}`} onSubmit={submitHuman} /><p className="pass-note">{isOnline ? "친구들도 각자의 화면에서 동시에 그림을 그리고 있습니다." : "그림 제출 후 다음 플레이어에게 화면을 넘겨주세요. 그림은 투표 전까지 비공개입니다."}</p>
     </section>}
     {screen === "ai" && <section className="loading-screen"><div className="scanner"><div className="bot-face">⌁</div><i /></div><div className="eyebrow"><span>03</span> MACHINE AT WORK</div><h2>{aiStatus || "AI가 그림을 그리고 있어요..."}</h2><p>같은 흰 배경, 같은 펜 규칙으로 한 장을 추가합니다.</p></section>}
     {screen === "vote" && <section className="panel vote">
@@ -192,7 +306,7 @@ export default function Home() {
       <div className="vote-submit"><span>{selected ? "선택 완료. 정체를 확인해 보세요." : "AI라고 생각하는 그림을 선택하세요."}</span><button className="primary" disabled={!selected} onClick={() => setScreen("result")}>정체 공개 →</button></div>
     </section>}
     {screen === "result" && picked && <section className="result-screen">
-      <div className="result-copy"><div className="eyebrow"><span>05</span> IDENTITY REVEALED</div><h2>{fooled ? <>완벽하게<br /><em>속았습니다.</em></> : <>정확하게<br /><em>찾았습니다.</em></>}</h2><p>{fooled ? `${picked.author}의 그림은 사람이 그렸습니다. AI처럼 보이는 데 성공했네요.` : "선택한 그림은 MIMIC BOT이 그린 진짜 AI 그림입니다."}</p><div className="score-row"><div><small>탐정 점수</small><strong>{fooled ? "+0" : "+1"}</strong></div><div><small>인간 위장 보너스</small><strong>{fooled ? "+2" : "+0"}</strong></div></div><button className="primary" onClick={startGame}>다음 라운드 →</button><button className="text-button" onClick={() => setScreen("home")}>게임 종료</button></div>
+      <div className="result-copy"><div className="eyebrow"><span>05</span> IDENTITY REVEALED</div><h2>{fooled ? <>완벽하게<br /><em>속았습니다.</em></> : <>정확하게<br /><em>찾았습니다.</em></>}</h2><p>{fooled ? `${picked.author}의 그림은 사람이 그렸습니다. AI처럼 보이는 데 성공했네요.` : "선택한 그림은 MIMIC BOT이 그린 진짜 AI 그림입니다."}</p><div className="score-row"><div><small>탐정 점수</small><strong>{fooled ? "+0" : "+1"}</strong></div><div><small>인간 위장 보너스</small><strong>{fooled ? "+2" : "+0"}</strong></div></div>{!isOnline || isHost ? <button className="primary" onClick={isOnline ? startOnlineGame : startGame}>다음 라운드 →</button> : <span className="waiting-host">방장이 다음 라운드를 준비 중...</span>}<button className="text-button" onClick={isOnline ? leaveOnline : () => setScreen("home")}>게임 종료</button></div>
       <div className="reveal-stack">{drawings.map(item => <article key={item.id} className={item.id === selected ? "picked" : ""}><img src={item.image} alt={`${item.author}의 그림`} /><div><span>{item.isAI ? "AI" : "HUMAN"}</span><strong>{item.author}</strong>{item.id === selected && <b>YOUR PICK</b>}</div></article>)}</div>
     </section>}
     <footer><span>MIMIC.AI / 2026</span><span>HUMANS PRETENDING TO BE MACHINES</span></footer>
