@@ -150,8 +150,7 @@ export default function Home() {
       <div className="profile-intro">
         <div className="eyebrow"><span>00</span> CREATE YOUR HUMAN</div>
         <h1>당신은<br /><em>누구인가요?</em></h1>
-        <p>게임에서 사용할 이름과 캐릭터를 만드세요.<br />정체는 인간이지만, 그림만큼은 AI처럼.</p>
-        <div className="profile-note"><span>!</span><p>프로필은 이 기기에만 저장되며<br />언제든 오른쪽 위에서 수정할 수 있어요.</p></div>
+        <p>게임에서 사용할 이름과 캐릭터를 만드세요.<br />당신은 이제부터 AI 입니다!</p>
       </div>
       <div className="creator-card">
         <div className="avatar-stage">
