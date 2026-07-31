@@ -200,6 +200,7 @@ export default function Home() {
   const [isOnline, setIsOnline] = useState(false);
   const [isHost, setIsHost] = useState(false);
   const [onlineProfiles, setOnlineProfiles] = useState<Record<string, OnlineProfile>>({});
+  const [readyPlayers, setReadyPlayers] = useState<Record<string, boolean>>({});
   const [publicRooms, setPublicRooms] = useState<Record<string, PublicRoom>>({});
   const [roomName, setRoomName] = useState("");
   const [currentRoomName, setCurrentRoomName] = useState("");
@@ -242,6 +243,7 @@ export default function Home() {
   const profileRef = useRef(profile);
   const wordRef = useRef(word);
   const profilesRef = useRef<Record<string, OnlineProfile>>({});
+  const readyPlayersRef = useRef<Record<string, boolean>>({});
   const eliminatedRef = useRef<string[]>([]);
   const eliminatedAiRef = useRef<number[]>([]);
   const submittedRef = useRef<Record<string, Drawing>>({});
@@ -262,9 +264,11 @@ export default function Home() {
   const sendDrawingRef = useRef<((data: Drawing, options?: { target?: string }) => Promise<void>) | null>(null);
   const sendStatusRef = useRef<((data: { id: string; status: PlayerStatus }, options?: { target?: string }) => Promise<void>) | null>(null);
   const sendVoteRef = useRef<((data: { id: string; drawingId: string }, options?: { target?: string }) => Promise<void>) | null>(null);
+  const sendReadyRef = useRef<((data: { id: string; ready: boolean }, options?: { target?: string }) => Promise<void>) | null>(null);
   useEffect(() => { profileRef.current = profile; }, [profile]);
   useEffect(() => { wordRef.current = word; }, [word]);
   useEffect(() => { profilesRef.current = onlineProfiles; }, [onlineProfiles]);
+  useEffect(() => { readyPlayersRef.current = readyPlayers; }, [readyPlayers]);
   useEffect(() => { eliminatedRef.current = eliminatedIds; }, [eliminatedIds]);
   useEffect(() => { eliminatedAiRef.current = eliminatedAiIndexes; }, [eliminatedAiIndexes]);
   useEffect(() => { isHostRef.current = isHost; }, [isHost]);
@@ -517,6 +521,8 @@ export default function Home() {
     const mine: OnlineProfile = { ...profileRef.current, id: selfId, host };
     const initial = { [selfId]: mine };
     setOnlineProfiles(initial); profilesRef.current = initial;
+    readyPlayersRef.current = { [selfId]: host };
+    setReadyPlayers(readyPlayersRef.current);
     const p2pRoom = joinRoom({ appId: "mimic-ai-game-2026-v1" }, code);
     p2pRoomRef.current = p2pRoom;
     const profileAction = p2pRoom.makeAction<OnlineProfile>("profile");
@@ -526,6 +532,7 @@ export default function Home() {
     const drawingAction = p2pRoom.makeAction<Drawing>("drawing");
     const statusAction = p2pRoom.makeAction<{ id: string; status: PlayerStatus }>("status");
     const voteAction = p2pRoom.makeAction<{ id: string; drawingId: string }>("vote");
+    const readyAction = p2pRoom.makeAction<{ id: string; ready: boolean }>("ready");
     sendProfileRef.current = profileAction.send;
     sendRoomMetaRef.current = roomMetaAction.send;
     sendChatRef.current = chatAction.send;
@@ -533,12 +540,14 @@ export default function Home() {
     sendDrawingRef.current = drawingAction.send;
     sendStatusRef.current = statusAction.send;
     sendVoteRef.current = voteAction.send;
+    sendReadyRef.current = readyAction.send;
     profileAction.onMessage = data => {
       setOnlineProfiles(old => {
         const next = { ...old, [data.id]: data };
         profilesRef.current = next;
         return next;
       });
+      setReadyPlayers(old => data.id in old ? old : { ...old, [data.id]: Boolean(data.host) });
       setConnectionText("실시간 연결됨");
     };
     roomMetaAction.onMessage = data => {
@@ -598,15 +607,18 @@ export default function Home() {
       }, {}));
       if (isHostRef.current) finishOnlineVote();
     };
+    readyAction.onMessage = data => setReadyPlayers(old => ({ ...old, [data.id]: data.ready }));
     p2pRoom.onPeerJoin = peerId => {
       profileAction.send(mine, { target: peerId });
       if (isHostRef.current) roomMetaAction.send({ name: hostedRoomRef.current.name || `${profileRef.current.name}의 방`, visibility: hostedRoomRef.current.visibility, aiCount: aiCountRef.current }, { target: peerId });
+      Object.entries(readyPlayersRef.current).forEach(([id, ready]) => readyAction.send({ id, ready }, { target: peerId }));
       setConnectionText("실시간 연결됨");
     };
     p2pRoom.onPeerLeave = peerId => {
       setOnlineProfiles(old => {
         const departedWasHost = Boolean(old[peerId]?.host);
         const next = { ...old }; delete next[peerId];
+        setReadyPlayers(current => { const updated = { ...current }; delete updated[peerId]; return updated; });
         if (departedWasHost) {
           const nextHostId = Object.keys(next).sort()[0];
           Object.keys(next).forEach(id => { next[id] = { ...next[id], host: id === nextHostId }; });
@@ -622,6 +634,8 @@ export default function Home() {
   };
   const startOnlineGame = () => {
     if (!isHost || Object.keys(onlineProfiles).length < 2) return;
+    const guests = Object.values(onlineProfiles).filter(item => !item.host);
+    if (!guests.every(item => readyPlayers[item.id])) return;
     const nextWord = randomWord(wordRef.current);
     const drawEndsAt = Date.now() + 60000;
     const statuses = Object.fromEntries(Object.keys(onlineProfiles).map(id => [id, eliminatedRef.current.includes(id) ? "eliminated" : "drawing"])) as Record<string, PlayerStatus>;
@@ -666,9 +680,17 @@ export default function Home() {
     voteTimerRef.current = null; voteGateOpenRef.current = false;
     void p2pRoomRef.current?.leave();
     p2pRoomRef.current = null; setIsOnline(false); setIsHost(false); isHostRef.current = false; setOnlineProfiles({});
+    setReadyPlayers({});
     setChatMessages([]); setChatInput("");
     window.history.replaceState({}, "", window.location.pathname);
     setScreen("home");
+  };
+  const toggleReady = () => {
+    if (isHost) return;
+    const ready = !readyPlayers[selfId];
+    readyPlayersRef.current = { ...readyPlayersRef.current, [selfId]: ready };
+    setReadyPlayers(old => ({ ...old, [selfId]: ready }));
+    sendReadyRef.current?.({ id: selfId, ready });
   };
   const submitOnlineVote = (choice = selected) => {
     if (!choice || hasVoted) return;
@@ -724,6 +746,8 @@ export default function Home() {
   const gallery = isOnline ? drawings : shuffleDrawings(drawings, word);
   const picked = drawings.find(item => item.id === selected);
   const fooled = picked ? !picked.isAI : false;
+  const guests = Object.values(onlineProfiles).filter(item => !item.host);
+  const allGuestsReady = guests.length > 0 && guests.every(item => readyPlayers[item.id]);
   const openProfileEditor = () => {
     const gameInProgress = screen === "draw" || screen === "ai" || screen === "vote" || screen === "result";
     if (gameInProgress && !window.confirm("게임이 진행 중입니다. 캐릭터를 꾸미러 가면 현재 게임에서 나가게 됩니다. 이동할까요?")) return;
@@ -790,8 +814,8 @@ export default function Home() {
     </section>}
     {screen === "lobby" && <section className="panel lobby">
       <div className="lobby-title"><div><h2 className="room-name-heading">{currentRoomName || `${Object.values(onlineProfiles).find(item => item.host)?.name || profile.name}의 방`}</h2><div className="eyebrow">ASSEMBLE HUMANS</div></div><div className="room-card"><span>초대 코드</span><strong>{roomCode}</strong><button onClick={() => { navigator.clipboard?.writeText(`${location.origin}${location.pathname}?room=${roomCode}`); setCopied(true); }}>{copied ? "초대 링크 복사 완료 ✓" : "초대 링크 복사"}</button></div></div>
-      <div className="ai-count-control"><span>AI 참가자</span><div>{[1, 2, 3].map(count => <button key={count} className={aiCount === count ? "active" : ""} disabled={!isHost} onClick={() => chooseAiCount(count)}>{count}명</button>)}</div>{isHost ? <button className="lobby-start" disabled={Object.keys(onlineProfiles).length < 2} onClick={startOnlineGame}>게임 시작 →</button> : <span className="waiting-host">방장이 시작하기를 기다리는 중...</span>}</div>
-      <div className="players">{Object.values(onlineProfiles).sort((a, b) => Number(Boolean(b.host)) - Number(Boolean(a.host))).map(item => <div className="player-card" key={item.id}><span className={`mini-avatar ${item.shape}`} style={{ background: item.color }}>{item.face}</span><div><strong>{item.name}</strong><small>{item.host ? "방장" : "게스트"} · 실시간 접속</small></div><i>READY</i></div>)}{Object.keys(onlineProfiles).length < 2 && <button className="add-player" onClick={() => { navigator.clipboard?.writeText(`${location.origin}${location.pathname}?room=${roomCode}`); setCopied(true); }}>{copied ? "복사 완료 ✓" : "초대 +"}</button>}</div>
+      <div className="ai-count-control"><span>AI 참가자</span><div>{[1, 2, 3].map(count => <button key={count} className={aiCount === count ? "active" : ""} disabled={!isHost} onClick={() => chooseAiCount(count)}>{count}명</button>)}</div>{isHost ? <button className="lobby-start" disabled={Object.keys(onlineProfiles).length < 2 || !allGuestsReady} onClick={startOnlineGame}>{allGuestsReady ? "게임 시작 →" : "준비 대기 중"}</button> : <div className="guest-lobby-actions"><button className="leave-room" onClick={leaveOnline}>방 나가기</button><button className={`ready-button ${readyPlayers[selfId] ? "active" : ""}`} onClick={toggleReady}>{readyPlayers[selfId] ? "준비 완료 ✓" : "준비"}</button></div>}</div>
+      <div className="players">{Object.values(onlineProfiles).sort((a, b) => Number(Boolean(b.host)) - Number(Boolean(a.host))).map(item => <div className="player-card" key={item.id}><span className={`mini-avatar ${item.shape}`} style={{ background: item.color }}>{item.face}</span><div><strong>{item.name}</strong><small>{item.host ? "방장" : "게스트"} · 실시간 접속</small></div><i className={!item.host && !readyPlayers[item.id] ? "not-ready" : ""}>{item.host ? "HOST" : readyPlayers[item.id] ? "READY" : "WAITING"}</i></div>)}{Object.keys(onlineProfiles).length < 2 && <button className="add-player" onClick={() => { navigator.clipboard?.writeText(`${location.origin}${location.pathname}?room=${roomCode}`); setCopied(true); }}>{copied ? "복사 완료 ✓" : "초대 +"}</button>}</div>
       <div className="room-chat">
         <div className="chat-head"><strong>ROOM CHAT</strong><span>{Object.keys(onlineProfiles).length}명 접속</span></div>
         <div className="chat-messages">{chatMessages.length ? chatMessages.map(message => <div key={message.id} className={message.senderId === selfId ? "mine" : ""}><strong>{message.senderName}</strong><p>{message.text}</p></div>) : <p className="chat-empty">첫 메시지를 보내보세요.</p>}</div>
