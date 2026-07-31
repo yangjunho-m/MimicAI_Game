@@ -129,20 +129,6 @@ function pseudoAiSketch(word: string, aiVariant = Math.floor(Math.random() * 3))
     line(accent, 13); roughArc(445, 440, 185 + wobble(11, 8), 75 + wobble(12, 5), 0, Math.PI * 2, wobble(13, .025), 7);
     for (let i = 0; i < 5; i++) { c.beginPath(); c.moveTo(300 + i * 70, 410 + wobble(i)); c.quadraticCurveTo(345 + i * 45, 455, 330 + i * 75, 475 + wobble(i + 4)); c.stroke(); }
   }
-  line(aiVariant === 1 ? "#171717" : accent, aiVariant === 0 ? 7 : 5);
-  if (aiVariant === 0) {
-    for (let i = 0; i < 5; i++) roughLine(105 + i * 145, 535 + wobble(i, 10), 185 + i * 135, 555 + wobble(i + 3, 16), 9);
-  } else if (aiVariant === 1) {
-    roughLine(105, 105, 790, 78, 3);
-    roughLine(790, 78, 820, 535, 3);
-    roughLine(820, 535, 135, 558, 3);
-  } else {
-    for (let i = 0; i < 13; i++) {
-      const x = 90 + ((i * 127 + seed) % 720);
-      const y = 65 + ((i * 83 + seed) % 480);
-      roughArc(x, y, 8 + (i % 4) * 3, 7 + ((i + 2) % 3) * 3, 0, Math.PI * 2, 0, 4);
-    }
-  }
   return canvas.toDataURL("image/png");
 }
 

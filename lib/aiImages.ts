@@ -6,6 +6,38 @@ export type AiProvider = "openai" | "gemini" | "cloudflare";
 const providers: AiProvider[] = ["openai", "gemini", "cloudflare"];
 const providerInk = ["#171717", "#168c73", "#171717"];
 
+type StrokePlan = Array<Array<[number, number]>>;
+
+function renderStrokePlan(strokes: StrokePlan, aiIndex: number) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 900;
+  canvas.height = 620;
+  const context = canvas.getContext("2d")!;
+  context.fillStyle = "#fff";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.strokeStyle = "#171717";
+  context.lineWidth = 7;
+  context.lineCap = "round";
+  context.lineJoin = "round";
+
+  strokes.slice(0, 15).forEach((stroke, strokeIndex) => {
+    const points = stroke.slice(0, 24);
+    if (points.length < 2) return;
+    context.beginPath();
+    points.forEach(([rawX, rawY], pointIndex) => {
+      const x = Math.max(7, Math.min(93, Number(rawX))) / 100 * canvas.width;
+      const y = Math.max(8, Math.min(92, Number(rawY))) / 100 * canvas.height;
+      const wobbleX = Math.sin(pointIndex * 1.8 + strokeIndex * 2.1 + aiIndex) * 5;
+      const wobbleY = Math.cos(pointIndex * 1.45 + strokeIndex * 1.7 + aiIndex) * 4;
+      if (pointIndex === 0) context.moveTo(x - 5, y + 3);
+      else context.lineTo(x + wobbleX, y + wobbleY);
+    });
+    context.stroke();
+  });
+
+  return canvas.toDataURL("image/png");
+}
+
 async function forceSinglePenStyle(source: string, aiIndex: number) {
   const image = await new Promise<HTMLImageElement>((resolve, reject) => {
     const element = new Image();
@@ -143,7 +175,10 @@ export async function generateAiImage(word: string, aiIndex: number) {
     throw new Error(`${provider}: ${response.status} ${message}`);
   }
 
-  const data = await response.json() as { image?: string; provider?: AiProvider };
+  const data = await response.json() as { image?: string; strokes?: StrokePlan; provider?: AiProvider };
+  if (provider === "cloudflare" && Array.isArray(data.strokes) && data.strokes.length >= 5) {
+    return { image: renderStrokePlan(data.strokes, aiIndex), provider };
+  }
   if (!data.image?.startsWith("data:image/")) throw new Error(`${provider}: invalid image`);
   return { image: await forceSinglePenStyle(data.image, aiIndex), provider };
 }

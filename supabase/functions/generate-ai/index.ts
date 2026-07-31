@@ -109,23 +109,47 @@ async function geminiImage(prompt: string) {
   return `data:${image.mime};base64,${image.data}`;
 }
 
-async function cloudflareImage(prompt: string, seed: number) {
+async function cloudflareStrokePlan(subject: string, seed: number) {
   const token = Deno.env.get("CLOUDFLARE_API_TOKEN");
   const accountId = Deno.env.get("CLOUDFLARE_ACCOUNT_ID");
   if (!token || !accountId) throw new Error("Cloudflare secrets are missing");
   const response = await fetch(
-    `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/black-forest-labs/flux-1-schnell`,
+    `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/meta/llama-3.1-8b-instruct`,
     {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt, seed, steps: 6 })
+      body: JSON.stringify({
+        messages: [
+          {
+            role: "system",
+            content: `You design crude mouse drawings as JSON polylines. Canvas coordinates are 0 to 100. Return ONLY a JSON array containing 5 to 15 strokes. Each stroke is an array of 2 to 14 [x,y] points. Make the subject recognizable using large silhouettes and essential parts only. Use awkward proportions, shaky bends, a few overshoots, and no facial expression. Do not add a frame, ground decorations, repeated symbols, text, dots, shading, or tiny details. Keep all points between 8 and 92. Random seed: ${seed}.`
+          },
+          { role: "user", content: `Create a badly drawn but recognizable line drawing of: ${subject}` }
+        ],
+        max_tokens: 900,
+        temperature: 0.85
+      })
     }
   );
   const data = await response.json();
-  if (!response.ok || !data?.result?.image) {
-    throw new Error(data?.errors?.[0]?.message || `Cloudflare ${response.status}`);
-  }
-  return `data:image/jpeg;base64,${data.result.image}`;
+  const text = data?.result?.response || "";
+  if (!response.ok || !text) throw new Error(data?.errors?.[0]?.message || `Cloudflare ${response.status}`);
+  const start = text.indexOf("[");
+  const end = text.lastIndexOf("]");
+  if (start < 0 || end <= start) throw new Error("Cloudflare returned no stroke plan");
+  const parsed = JSON.parse(text.slice(start, end + 1));
+  if (!Array.isArray(parsed)) throw new Error("Cloudflare returned an invalid stroke plan");
+  const strokes = parsed
+    .slice(0, 15)
+    .map((stroke: unknown) => Array.isArray(stroke)
+      ? stroke.slice(0, 14).filter(point => Array.isArray(point) && point.length >= 2).map(point => [
+        Math.max(8, Math.min(92, Number(point[0]))),
+        Math.max(8, Math.min(92, Number(point[1])))
+      ])
+      : [])
+    .filter((stroke: number[][]) => stroke.length >= 2);
+  if (strokes.length < 5) throw new Error("Cloudflare returned too few strokes");
+  return strokes;
 }
 
 Deno.serve(async request => {
@@ -146,12 +170,11 @@ Deno.serve(async request => {
     const visualSubject = provider === "cloudflare" ? await translateSceneForCloudflare(word) : word;
     const prompt = promptFor(visualSubject, variation);
     const seed = Math.abs([...`${word}-${variation}-${Date.now()}`].reduce((sum, char) => ((sum * 31) + char.charCodeAt(0)) | 0, 7));
-    const image = provider === "openai"
-      ? await openAiImage(prompt)
-      : provider === "gemini"
-        ? await geminiImage(prompt)
-        : await cloudflareImage(prompt, seed);
-
+    if (provider === "cloudflare") {
+      const strokes = await cloudflareStrokePlan(visualSubject, seed);
+      return Response.json({ strokes, provider }, { headers: { ...corsHeaders, "Cache-Control": "no-store" } });
+    }
+    const image = provider === "openai" ? await openAiImage(prompt) : await geminiImage(prompt);
     return Response.json({ image, provider }, { headers: { ...corsHeaders, "Cache-Control": "no-store" } });
   } catch (error) {
     console.error(error);
