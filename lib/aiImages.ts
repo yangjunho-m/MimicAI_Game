@@ -1,9 +1,9 @@
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 
-export type AiProvider = "openai" | "gemini" | "cloudflare";
+export type AiProvider = "openai" | "gemini" | "grok";
 
-const providers: AiProvider[] = ["openai", "gemini", "cloudflare"];
+const providers: AiProvider[] = ["openai", "gemini", "grok"];
 const providerInk = ["#171717", "#168c73", "#171717"];
 
 type StrokePlan = Array<Array<[number, number]>>;
@@ -73,61 +73,6 @@ async function forceSinglePenStyle(source: string, aiIndex: number) {
   outputContext.fillStyle = "#fff";
   outputContext.fillRect(0, 0, output.width, output.height);
   outputContext.fillStyle = providerInk[aiIndex % providerInk.length];
-  const isCloudflare = aiIndex % providers.length === 2;
-
-  if (isCloudflare) {
-    const candidates: Array<{ x: number; y: number; used: boolean }> = [];
-    for (let y = 3; y < height - 3; y += 3) {
-      for (let x = 3; x < width - 3; x += 3) {
-        const center = y * width + x;
-        const contrast = Math.abs(gray[center + 1] - gray[center - 1])
-          + Math.abs(gray[center + width] - gray[center - width]);
-        if (contrast > 64 && gray[center] < 248) candidates.push({ x, y, used: false });
-      }
-    }
-
-    const strokeCount = Math.min(15, Math.max(5, 5 + (candidates.length % 11)));
-    outputContext.strokeStyle = "#171717";
-    outputContext.lineWidth = 5;
-    outputContext.lineCap = "round";
-    outputContext.lineJoin = "round";
-
-    for (let stroke = 0; stroke < strokeCount && candidates.length; stroke += 1) {
-      let current = candidates[(stroke * 977 + candidates.length * 13) % candidates.length];
-      let attempts = 0;
-      while (current.used && attempts < candidates.length) {
-        current = candidates[(stroke * 977 + attempts * 37) % candidates.length];
-        attempts += 1;
-      }
-      if (current.used) break;
-
-      outputContext.beginPath();
-      const startX = (current.x / width) * output.width;
-      const startY = (current.y / height) * output.height;
-      outputContext.moveTo(startX - 7 + (stroke % 4), startY + 5 - (stroke % 3));
-
-      for (let point = 0; point < 65; point += 1) {
-        current.used = true;
-        const near = candidates
-          .filter(candidate => !candidate.used && Math.abs(candidate.x - current.x) < 22 && Math.abs(candidate.y - current.y) < 22)
-          .sort((a, b) => {
-            const distanceA = (a.x - current.x) ** 2 + (a.y - current.y) ** 2;
-            const distanceB = (b.x - current.x) ** 2 + (b.y - current.y) ** 2;
-            return distanceA - distanceB;
-          })[0];
-        if (!near) break;
-        current = near;
-        const wobbleX = Math.sin(point * 1.71 + stroke * 2.3) * 6;
-        const wobbleY = Math.cos(point * 1.37 + stroke * 1.9) * 5;
-        outputContext.lineTo(
-          (current.x / width) * output.width + wobbleX,
-          (current.y / height) * output.height + wobbleY
-        );
-      }
-      outputContext.stroke();
-    }
-    return output.toDataURL("image/png");
-  }
 
   // Convert every provider's raster output into one uneven, single-color pen.
   for (let y = 3; y < height - 3; y += 2) {
@@ -176,7 +121,7 @@ export async function generateAiImage(word: string, aiIndex: number) {
   }
 
   const data = await response.json() as { image?: string; strokes?: StrokePlan; provider?: AiProvider };
-  if (provider === "cloudflare" && Array.isArray(data.strokes) && data.strokes.length >= 5) {
+  if (provider === "grok" && Array.isArray(data.strokes) && data.strokes.length >= 5) {
     return { image: renderStrokePlan(data.strokes, aiIndex), provider };
   }
   if (!data.image?.startsWith("data:image/")) throw new Error(`${provider}: invalid image`);

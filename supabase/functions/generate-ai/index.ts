@@ -4,7 +4,7 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS"
 };
 
-type Provider = "openai" | "gemini" | "cloudflare";
+type Provider = "openai" | "gemini" | "grok";
 
 const stylePrompts = [
   "Use only one black ballpoint pen. Loose contour drawing, small hesitant corrections, asymmetrical and slightly cropped composition.",
@@ -21,33 +21,6 @@ function promptFor(word: string, variation: number) {
     "Do not draw any facial expression. Avoid perfect circles, straight lines, symmetry, and polished vector shapes.",
     stylePrompts[Math.abs(variation) % stylePrompts.length]
   ].join(" ");
-}
-
-async function translateSceneForCloudflare(word: string) {
-  const token = Deno.env.get("CLOUDFLARE_API_TOKEN");
-  const accountId = Deno.env.get("CLOUDFLARE_ACCOUNT_ID");
-  if (!token || !accountId) throw new Error("Cloudflare secrets are missing");
-  const response = await fetch(
-    `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/meta/llama-3.1-8b-instruct`,
-    {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        messages: [
-          {
-            role: "system",
-            content: "Translate the Korean drawing topic into one concise concrete English visual scene. Return English only. Never copy Korean text. Never mention typography, labels, signs, writing, pens, pencils, paper, or art tools."
-          },
-          { role: "user", content: word }
-        ],
-        max_tokens: 100
-      })
-    }
-  );
-  const data = await response.json();
-  const translated = data?.result?.response?.trim();
-  if (!response.ok || !translated) throw new Error(data?.errors?.[0]?.message || `Cloudflare translation ${response.status}`);
-  return translated.replace(/[가-힣ㄱ-ㅎㅏ-ㅣ]/g, "").trim();
 }
 
 async function openAiImage(prompt: string) {
@@ -109,46 +82,77 @@ async function geminiImage(prompt: string) {
   return `data:${image.mime};base64,${image.data}`;
 }
 
-async function cloudflareStrokePlan(subject: string, seed: number) {
-  const token = Deno.env.get("CLOUDFLARE_API_TOKEN");
-  const accountId = Deno.env.get("CLOUDFLARE_ACCOUNT_ID");
-  if (!token || !accountId) throw new Error("Cloudflare secrets are missing");
-  const response = await fetch(
-    `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/meta/llama-3.1-8b-instruct`,
-    {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        messages: [
-          {
-            role: "system",
-            content: `You design crude mouse drawings as JSON polylines. Canvas coordinates are 0 to 100. Return ONLY a JSON array containing 5 to 15 strokes. Each stroke is an array of 2 to 14 [x,y] points. Make the subject recognizable using large silhouettes and essential parts only. Use awkward proportions, shaky bends, a few overshoots, and no facial expression. Do not add a frame, ground decorations, repeated symbols, text, dots, shading, or tiny details. Keep all points between 8 and 92. Random seed: ${seed}.`
-          },
-          { role: "user", content: `Create a badly drawn but recognizable line drawing of: ${subject}` }
-        ],
-        max_tokens: 900,
-        temperature: 0.85
-      })
-    }
-  );
+async function grokStrokePlan(subject: string, seed: number) {
+  const key = Deno.env.get("XAI_API_KEY");
+  if (!key) throw new Error("XAI_API_KEY is missing");
+  const response = await fetch("https://api.x.ai/v1/chat/completions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "grok-4.3",
+      messages: [
+        {
+          role: "system",
+          content: `Design a crude but recognizable mouse drawing on a 0-100 coordinate canvas. Use only essential silhouettes and parts. Make proportions awkward and lines slightly shaky. Never add facial expressions, frames, ground decorations, repeated symbols, text, dots, shading, color, or tiny details. Keep every coordinate between 8 and 92. Random seed: ${seed}.`
+        },
+        { role: "user", content: `제시어를 검은 펜 선 5~15개로 알아볼 수 있게 그려 주세요: ${subject}` }
+      ],
+      temperature: 0.9,
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "rough_drawing",
+          strict: true,
+          schema: {
+            type: "object",
+            properties: {
+              strokes: {
+                type: "array",
+                minItems: 5,
+                maxItems: 15,
+                items: {
+                  type: "object",
+                  properties: {
+                    points: {
+                      type: "array",
+                      minItems: 2,
+                      maxItems: 14,
+                      items: {
+                        type: "object",
+                        properties: { x: { type: "number" }, y: { type: "number" } },
+                        required: ["x", "y"],
+                        additionalProperties: false
+                      }
+                    }
+                  },
+                  required: ["points"],
+                  additionalProperties: false
+                }
+              }
+            },
+            required: ["strokes"],
+            additionalProperties: false
+          }
+        }
+      }
+    })
+  });
   const data = await response.json();
-  const text = data?.result?.response || "";
-  if (!response.ok || !text) throw new Error(data?.errors?.[0]?.message || `Cloudflare ${response.status}`);
-  const start = text.indexOf("[");
-  const end = text.lastIndexOf("]");
-  if (start < 0 || end <= start) throw new Error("Cloudflare returned no stroke plan");
-  const parsed = JSON.parse(text.slice(start, end + 1));
-  if (!Array.isArray(parsed)) throw new Error("Cloudflare returned an invalid stroke plan");
-  const strokes = parsed
-    .slice(0, 15)
-    .map((stroke: unknown) => Array.isArray(stroke)
-      ? stroke.slice(0, 14).filter(point => Array.isArray(point) && point.length >= 2).map(point => [
-        Math.max(8, Math.min(92, Number(point[0]))),
-        Math.max(8, Math.min(92, Number(point[1])))
-      ])
-      : [])
-    .filter((stroke: number[][]) => stroke.length >= 2);
-  if (strokes.length < 5) throw new Error("Cloudflare returned too few strokes");
+  const text = data?.choices?.[0]?.message?.content;
+  if (!response.ok || !text) {
+    const detail = typeof data?.error === "string"
+      ? data.error
+      : data?.error?.message || data?.error?.code || JSON.stringify(data?.error || data);
+    throw new Error(`xAI ${response.status}: ${detail}`);
+  }
+  const parsed = JSON.parse(text) as { strokes?: Array<{ points?: Array<{ x?: number; y?: number }> }> };
+  const strokes = (parsed.strokes || []).slice(0, 15).map(stroke =>
+    (stroke.points || []).slice(0, 14).map(point => [
+      Math.max(8, Math.min(92, Number(point.x))),
+      Math.max(8, Math.min(92, Number(point.y)))
+    ])
+  ).filter(stroke => stroke.length >= 2);
+  if (strokes.length < 5) throw new Error("Grok returned too few strokes");
   return strokes;
 }
 
@@ -163,15 +167,14 @@ Deno.serve(async request => {
     const word = body.word?.trim().slice(0, 160);
     const provider = body.provider;
     const variation = Number.isFinite(body.variation) ? Number(body.variation) : 0;
-    if (!word || !provider || !["openai", "gemini", "cloudflare"].includes(provider)) {
+    if (!word || !provider || !["openai", "gemini", "grok"].includes(provider)) {
       return Response.json({ error: "Invalid request" }, { status: 400, headers: corsHeaders });
     }
 
-    const visualSubject = provider === "cloudflare" ? await translateSceneForCloudflare(word) : word;
-    const prompt = promptFor(visualSubject, variation);
+    const prompt = promptFor(word, variation);
     const seed = Math.abs([...`${word}-${variation}-${Date.now()}`].reduce((sum, char) => ((sum * 31) + char.charCodeAt(0)) | 0, 7));
-    if (provider === "cloudflare") {
-      const strokes = await cloudflareStrokePlan(visualSubject, seed);
+    if (provider === "grok") {
+      const strokes = await grokStrokePlan(word, seed);
       return Response.json({ strokes, provider }, { headers: { ...corsHeaders, "Cache-Control": "no-store" } });
     }
     const image = provider === "openai" ? await openAiImage(prompt) : await geminiImage(prompt);
