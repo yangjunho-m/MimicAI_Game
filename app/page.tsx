@@ -645,7 +645,7 @@ export default function Home() {
     if (!text) return;
     const message: ChatMessage = {
       id: `${selfId}-${Date.now()}`, senderId: selfId,
-      senderName: screen === "lobby" ? profileRef.current.name : "익명", text, sentAt: Date.now()
+      senderName: profileRef.current.name, text, sentAt: Date.now()
     };
     setChatMessages(old => [...old.slice(-49), message]);
     setChatInput("");
@@ -805,11 +805,6 @@ export default function Home() {
       <div className="result-copy"><div className="eyebrow">VOTE RESULT</div><h2>{gameWinner ? <>{gameWinner === "human" ? "인간" : "AI"}<br /><em>승리</em></> : isOnline ? (roundEliminatedId ? <>{onlineProfiles[roundEliminatedId]?.name || "한 사람"}<br /><em>탈락입니다.</em></> : roundEliminatedAiIndex !== null ? <>{getAiIdentity(roundEliminatedAiIndex, word).name}<br /><em>제거 완료</em></> : <>이번에는<br /><em>아무도 죽지 않았습니다.</em></>) : (fooled ? <>완벽하게<br /><em>속았습니다.</em></> : <>정확하게<br /><em>찾았습니다.</em></>)}</h2><p>{gameWinner ? "3초 후 대기실로 돌아갑니다." : isOnline ? (roundEliminatedId ? "가장 많은 표를 받았습니다. 다음 라운드부터 그림은 그릴 수 없지만 투표에는 계속 참여합니다." : roundEliminatedAiIndex !== null ? "AI 한 명을 찾아 제거했습니다." : "동률 또는 건너뛰기로 이번 라운드에는 탈락자가 없습니다.") : (fooled ? `${picked?.author}의 그림은 사람이 그렸습니다. AI처럼 보이는 데 성공했네요.` : "선택한 그림은 AI가 그린 그림입니다.")}</p>{!gameWinner && (!isOnline || isHost ? <button className="primary" onClick={isOnline ? startOnlineGame : startGame}>다음 라운드 →</button> : <span className="waiting-host">방장이 다음 라운드를 준비 중...</span>)}</div>
       <div className={`reveal-stack ${drawings.length >= 5 ? "many" : ""}`}>{drawings.map(item => <article key={item.id} className={item.id === selected ? "picked" : ""}><img src={item.image} alt={`${item.author}의 그림`} /><div><span>{item.isAI ? "AI" : "HUMAN"}</span><strong>{item.author}</strong>{item.id === selected && <b>YOUR PICK</b>}</div></article>)}</div>
     </section>}
-    {isOnline && (screen === "draw" || screen === "vote" || screen === "result") && <aside className="room-chat game-chat">
-      <div className="chat-head"><strong>ANONYMOUS CHAT</strong><span>게임 중 익명</span></div>
-      <div className="chat-messages">{chatMessages.length ? chatMessages.map(message => <div key={message.id} className={message.senderId === selfId ? "mine" : ""}><strong>익명</strong><p>{message.text}</p></div>) : <p className="chat-empty">익명으로 메시지를 보내보세요.</p>}</div>
-      <div className="chat-compose"><input maxLength={120} value={chatInput} placeholder="익명 메시지 입력" onChange={event => setChatInput(event.target.value)} onKeyDown={event => { if (event.key === "Enter") sendChatMessage(); }} /><button onClick={sendChatMessage} disabled={!chatInput.trim()}>전송 →</button></div>
-    </aside>}
     <footer><span>MIMIC.AI / 2026</span></footer>
   </main>;
 }

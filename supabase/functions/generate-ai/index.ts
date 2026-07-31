@@ -6,20 +6,36 @@ const corsHeaders = {
 
 type Provider = "openai" | "gemini" | "fal";
 
-const stylePrompts = [
-  "Use only one black ballpoint pen. Loose contour drawing, small hesitant corrections, asymmetrical and slightly cropped composition.",
-  "Use only one green felt-tip pen. Chunky minimal contour, off-center composition, distorted proportions, very few details.",
-  "Use only one BLACK pen with no other colors. Draw badly like an unskilled person using a slippery computer mouse. Use exactly 5 to 15 long connected strokes total: inaccurate proportions, visibly shaky curves, awkward overlaps, missed connections, accidental overshoots, incomplete objects, and large empty areas. Never use dots, stippling, dashed lines, shading, filled areas, or color. The result must look clumsy, rushed, and amateur, never polished."
+const artistDirections = [
+  [
+    "ARTIST A: draw with loose, drooping, wavy contours as if your wrist is tired.",
+    "Use a close, slightly cropped view placed toward the lower-left. Favor long sagging curves and leave awkward gaps.",
+    "Simplify the subject to its outer silhouette plus only two important inner details.",
+    "If the subject contains repeated things such as rain, stars, windows, leaves, petals, or motion marks, draw EXACTLY 2 or 3 of them, large and widely separated."
+  ].join(" "),
+  [
+    "ARTIST B: draw carefully and stiffly with mostly straight or angular mouse strokes.",
+    "Show the complete subject centered and upright, using a front or side view and clear separated parts.",
+    "Keep proportions simple but slightly wrong. Do not use loose scribbles and do not crop the main subject.",
+    "If the subject contains repeated things such as rain, stars, windows, leaves, petals, or motion marks, draw EXACTLY 4 or 5 of them in an orderly but imperfect arrangement."
+  ].join(" "),
+  [
+    "ARTIST C: draw quickly with nervous, scratchy, uneven contours and several obvious overshoots.",
+    "Use a wide off-center scene viewed from a tilted or unusual angle. Make one part too large and omit one normally expected detail.",
+    "Break some contours, but use connected lines rather than dots or stippling.",
+    "If the subject contains repeated things such as rain, stars, windows, leaves, petals, or motion marks, draw EXACTLY 8 to 11 of them with visibly different lengths and spacing."
+  ].join(" ")
 ];
 
 function promptFor(word: string, variation: number) {
   return [
     `Draw this subject: ${word}.`,
+    "Invent your own composition instead of copying the most common icon or stock-image composition for this subject.",
     "Make it look like a quick drawing made by a person using a mouse in a simple web paint program.",
     "Pure white background. ONE physical pen color only. Simple outline strokes only.",
     "ABSOLUTELY NO written words, letters, Korean characters, labels, calligraphy, pen or pencil shown in the image, photograph, shading, gradients, textures, realistic lighting, typography, border, frame, or signature.",
     "Do not draw any facial expression. Avoid perfect circles, straight lines, symmetry, and polished vector shapes.",
-    stylePrompts[Math.abs(variation) % stylePrompts.length]
+    artistDirections[Math.abs(variation) % artistDirections.length]
   ].join(" ");
 }
 
