@@ -462,7 +462,7 @@ export default function Home() {
     activeAiIndexes.forEach(async index => {
       sendStatusRef.current?.({ id: `__ai_${index}`, status: "drawing" });
       const startedAt = Date.now();
-      const pretendDuration = 3000 + Math.floor(Math.random() * 4000);
+      const pretendDuration = 20000 + Math.floor(Math.random() * 20001);
       try {
         const generated = await generateAiImage(wordRef.current, index);
         aiGeneratedImagesRef.current[index] = generated.image;
