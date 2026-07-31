@@ -232,6 +232,7 @@ export default function Home() {
   const [word, setWord] = useState(WORDS[0]);
   const [aiStatus, setAiStatus] = useState("");
   const [selected, setSelected] = useState("");
+  const [voteTally, setVoteTally] = useState<Record<string, number>>({});
   const [copied, setCopied] = useState(false);
   const p2pRoomRef = useRef<ReturnType<typeof joinRoom> | null>(null);
   const directoryRoomRef = useRef<ReturnType<typeof joinRoom> | null>(null);
@@ -554,7 +555,7 @@ export default function Home() {
         const statuses = Object.fromEntries(Object.keys(profilesRef.current).map(id => [id, data.eliminatedIds.includes(id) ? "eliminated" : "drawing"])) as Record<string, PlayerStatus>;
         const activeAiIndexes = Array.from({ length: aiCountRef.current }, (_, index) => index).filter(index => !eliminatedAiRef.current.includes(index));
         const aiStatuses = Object.fromEntries(activeAiIndexes.map(index => [`__ai_${index}`, "drawing"])) as Record<string, PlayerStatus>;
-        setPlayerStatuses({ ...statuses, ...aiStatuses }); votesRef.current = {}; setRoundEliminatedId(null); setRoundEliminatedAiIndex(null);
+        setPlayerStatuses({ ...statuses, ...aiStatuses }); votesRef.current = {}; setVoteTally({}); setRoundEliminatedId(null); setRoundEliminatedAiIndex(null);
         aiReadyRef.current = false; aiReadyCountRef.current = 0; setAiPlayerStatus("drawing"); setHasSubmitted(false); setHasVoted(false);
         wordRef.current = data.word; setWord(data.word); setDrawings([]); setSelected(""); submittedRef.current = {}; setScreen("draw");
       } else if (data.type === "gallery") {
@@ -590,9 +591,12 @@ export default function Home() {
       }
     };
     voteAction.onMessage = data => {
-      if (!isHostRef.current) return;
       votesRef.current[data.id] = data.drawingId;
-      finishOnlineVote();
+      setVoteTally(Object.values(votesRef.current).reduce<Record<string, number>>((counts, drawingId) => {
+        counts[drawingId] = (counts[drawingId] || 0) + 1;
+        return counts;
+      }, {}));
+      if (isHostRef.current) finishOnlineVote();
     };
     p2pRoom.onPeerJoin = peerId => {
       profileAction.send(mine, { target: peerId });
@@ -625,7 +629,7 @@ export default function Home() {
     if (voteTimerRef.current !== null) window.clearTimeout(voteTimerRef.current);
     const activeAiIndexes = Array.from({ length: aiCountRef.current }, (_, index) => index).filter(index => !eliminatedAiRef.current.includes(index));
     const aiStatuses = Object.fromEntries(activeAiIndexes.map(index => [`__ai_${index}`, "drawing"])) as Record<string, PlayerStatus>;
-    setPlayerStatuses({ ...statuses, ...aiStatuses }); votesRef.current = {}; setRoundEliminatedId(null); setRoundEliminatedAiIndex(null);
+    setPlayerStatuses({ ...statuses, ...aiStatuses }); votesRef.current = {}; setVoteTally({}); setRoundEliminatedId(null); setRoundEliminatedAiIndex(null);
     setHasSubmitted(false); setHasVoted(false); setDrawDeadline(drawEndsAt); setDrawSeconds(60);
     wordRef.current = nextWord; setWord(nextWord); setDrawings([]); setSelected(""); submittedRef.current = {}; setScreen("draw");
     sendControlRef.current?.({ type: "start", word: nextWord, eliminatedIds: eliminatedRef.current, drawEndsAt });
@@ -670,9 +674,13 @@ export default function Home() {
     if (!choice || hasVoted) return;
     if (choice === "__skip__") setSelected("");
     votesRef.current[selfId] = choice;
+    setVoteTally(Object.values(votesRef.current).reduce<Record<string, number>>((counts, drawingId) => {
+      counts[drawingId] = (counts[drawingId] || 0) + 1;
+      return counts;
+    }, {}));
     setHasVoted(true);
+    sendVoteRef.current?.({ id: selfId, drawingId: choice });
     if (isHost) finishOnlineVote();
-    else sendVoteRef.current?.({ id: selfId, drawingId: choice });
   };
   const startGame = () => { setWord(randomWord(word)); setDrawings([]); setTurn(0); setSelected(""); setDrawDeadline(Date.now() + 60000); setDrawSeconds(60); setScreen("draw"); };
   const submitHuman = (image: string) => {
@@ -716,11 +724,17 @@ export default function Home() {
   const gallery = isOnline ? drawings : shuffleDrawings(drawings, word);
   const picked = drawings.find(item => item.id === selected);
   const fooled = picked ? !picked.isAI : false;
+  const openProfileEditor = () => {
+    const gameInProgress = screen === "draw" || screen === "ai" || screen === "vote" || screen === "result";
+    if (gameInProgress && !window.confirm("게임이 진행 중입니다. 캐릭터를 꾸미러 가면 현재 게임에서 나가게 됩니다. 이동할까요?")) return;
+    if (gameInProgress && isOnline) leaveOnline();
+    setScreen("profile");
+  };
 
   return <main>
     <header className="site-header">
       <button className="brand" onClick={() => setScreen(profile.name ? "home" : "profile")}><span className="brand-dot" /> MIMIC<span>.AI</span></button>
-      {profile.name && <button className="profile-chip" onClick={() => setScreen("profile")} aria-label="프로필 수정">
+      {profile.name && <button className="profile-chip" onClick={openProfileEditor} aria-label="프로필 수정">
         <span className={`mini-avatar ${profile.shape}`} style={{ background: profile.color }}>{profile.face}</span>
         <strong>{profile.name}</strong><small>EDIT</small>
       </button>}
@@ -798,7 +812,7 @@ export default function Home() {
     {screen === "vote" && <section className="panel vote">
       <div className="section-top"><span>ROUND 01 / VOTE</span><span className="status-pill orange">정체 비공개</span></div>
       <div className="vote-heading"><div><div className="eyebrow">ELIMINATE A PLAYER</div><h2 className="single-line-title">사람을 죽여주세요.</h2></div><p>게임 안에서 탈락시킬 그림을 한 장 선택하세요.<br />가장 많은 표를 받은 사람은 다음 라운드부터 투표만 할 수 있습니다.</p></div>
-      <div className="gallery">{gallery.map((item, index) => <button key={item.id} disabled={isOnline && hasVoted} className={`art-card ${selected === item.id ? "selected" : ""}`} onClick={() => setSelected(item.id)}><span>DRAWING / 0{index + 1}</span><img src={item.image} alt={`후보 그림 ${index + 1}`} /><b>{selected === item.id ? "선택됨 ✓" : "이 그림에 투표"}</b></button>)}</div>
+      <div className="gallery">{gallery.map((item, index) => <button key={item.id} disabled={isOnline && hasVoted} className={`art-card ${selected === item.id ? "selected" : ""} ${voteTally[item.id] ? "has-votes" : ""}`} onClick={() => setSelected(item.id)}><span>DRAWING / 0{index + 1}</span>{Boolean(voteTally[item.id]) && <i className="vote-count-badge">{voteTally[item.id]}표 받음</i>}<img src={item.image} alt={`후보 그림 ${index + 1}`} /><b>{isOnline && hasVoted && selected === item.id ? "투표됨 ✓" : selected === item.id ? "선택됨 ✓" : "이 그림에 투표"}</b></button>)}</div>
       <div className="vote-submit"><span>{isOnline && voteSeconds > 0 ? `결과 공개까지 ${voteSeconds}초` : selected ? "선택 완료. 이 그림의 주인에게 투표합니다." : "탈락시킬 사람의 그림을 선택하세요."}</span><div className="vote-actions">{isOnline && <button className="skip-button" disabled={hasVoted} onClick={() => submitOnlineVote("__skip__")}>투표 건너뛰기</button>}<button className="primary" disabled={!selected || (isOnline && hasVoted)} onClick={isOnline ? () => submitOnlineVote() : () => setScreen("result")}>{isOnline && hasVoted ? "투표 완료 ✓" : "투표 완료 →"}</button></div></div>
     </section>}
     {screen === "result" && (isOnline || picked) && <section className="result-screen">
