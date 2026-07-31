@@ -4,7 +4,7 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS"
 };
 
-type Provider = "openai" | "gemini" | "grok";
+type Provider = "openai" | "gemini" | "fal";
 
 const stylePrompts = [
   "Use only one black ballpoint pen. Loose contour drawing, small hesitant corrections, asymmetrical and slightly cropped composition.",
@@ -82,78 +82,44 @@ async function geminiImage(prompt: string) {
   return `data:${image.mime};base64,${image.data}`;
 }
 
-async function grokStrokePlan(subject: string, seed: number) {
-  const key = Deno.env.get("XAI_API_KEY");
-  if (!key) throw new Error("XAI_API_KEY is missing");
-  const response = await fetch("https://api.x.ai/v1/chat/completions", {
+async function imageUrlToDataUri(url: string, mimeHint = "image/png") {
+  if (url.startsWith("data:image/")) return url;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`fal image download failed: ${response.status}`);
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  let binary = "";
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+  }
+  return `data:${response.headers.get("content-type") || mimeHint};base64,${btoa(binary)}`;
+}
+
+async function falImage(prompt: string, seed: number) {
+  const key = Deno.env.get("FAL_API_KEY");
+  if (!key) throw new Error("FAL_API_KEY is missing");
+  const response = await fetch("https://fal.run/fal-ai/flux/dev", {
     method: "POST",
-    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+    headers: { Authorization: `Key ${key}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: "grok-4.3",
-      messages: [
-        {
-          role: "system",
-          content: `Design a crude but recognizable mouse drawing on a 0-100 coordinate canvas. Use only essential silhouettes and parts. Make proportions awkward and lines slightly shaky. Never add facial expressions, frames, ground decorations, repeated symbols, text, dots, shading, color, or tiny details. Keep every coordinate between 8 and 92. Random seed: ${seed}.`
-        },
-        { role: "user", content: `제시어를 검은 펜 선 5~15개로 알아볼 수 있게 그려 주세요: ${subject}` }
-      ],
-      temperature: 0.9,
-      response_format: {
-        type: "json_schema",
-        json_schema: {
-          name: "rough_drawing",
-          strict: true,
-          schema: {
-            type: "object",
-            properties: {
-              strokes: {
-                type: "array",
-                minItems: 5,
-                maxItems: 15,
-                items: {
-                  type: "object",
-                  properties: {
-                    points: {
-                      type: "array",
-                      minItems: 2,
-                      maxItems: 14,
-                      items: {
-                        type: "object",
-                        properties: { x: { type: "number" }, y: { type: "number" } },
-                        required: ["x", "y"],
-                        additionalProperties: false
-                      }
-                    }
-                  },
-                  required: ["points"],
-                  additionalProperties: false
-                }
-              }
-            },
-            required: ["strokes"],
-            additionalProperties: false
-          }
-        }
-      }
+      prompt,
+      image_size: "square",
+      num_inference_steps: 20,
+      guidance_scale: 4.5,
+      seed,
+      sync_mode: true,
+      num_images: 1,
+      enable_safety_checker: true,
+      output_format: "png",
+      acceleration: "regular"
     })
   });
   const data = await response.json();
-  const text = data?.choices?.[0]?.message?.content;
-  if (!response.ok || !text) {
-    const detail = typeof data?.error === "string"
-      ? data.error
-      : data?.error?.message || data?.error?.code || JSON.stringify(data?.error || data);
-    throw new Error(`xAI ${response.status}: ${detail}`);
+  const image = data?.images?.[0];
+  if (!response.ok || !image?.url) {
+    const detail = data?.detail || data?.error?.message || data?.error || JSON.stringify(data);
+    throw new Error(`fal.ai ${response.status}: ${detail}`);
   }
-  const parsed = JSON.parse(text) as { strokes?: Array<{ points?: Array<{ x?: number; y?: number }> }> };
-  const strokes = (parsed.strokes || []).slice(0, 15).map(stroke =>
-    (stroke.points || []).slice(0, 14).map(point => [
-      Math.max(8, Math.min(92, Number(point.x))),
-      Math.max(8, Math.min(92, Number(point.y)))
-    ])
-  ).filter(stroke => stroke.length >= 2);
-  if (strokes.length < 5) throw new Error("Grok returned too few strokes");
-  return strokes;
+  return imageUrlToDataUri(image.url, image.content_type || "image/png");
 }
 
 Deno.serve(async request => {
@@ -167,17 +133,17 @@ Deno.serve(async request => {
     const word = body.word?.trim().slice(0, 160);
     const provider = body.provider;
     const variation = Number.isFinite(body.variation) ? Number(body.variation) : 0;
-    if (!word || !provider || !["openai", "gemini", "grok"].includes(provider)) {
+    if (!word || !provider || !["openai", "gemini", "fal"].includes(provider)) {
       return Response.json({ error: "Invalid request" }, { status: 400, headers: corsHeaders });
     }
 
     const prompt = promptFor(word, variation);
     const seed = Math.abs([...`${word}-${variation}-${Date.now()}`].reduce((sum, char) => ((sum * 31) + char.charCodeAt(0)) | 0, 7));
-    if (provider === "grok") {
-      const strokes = await grokStrokePlan(word, seed);
-      return Response.json({ strokes, provider }, { headers: { ...corsHeaders, "Cache-Control": "no-store" } });
-    }
-    const image = provider === "openai" ? await openAiImage(prompt) : await geminiImage(prompt);
+    const image = provider === "openai"
+      ? await openAiImage(prompt)
+      : provider === "gemini"
+        ? await geminiImage(prompt)
+        : await falImage(prompt, seed);
     return Response.json({ image, provider }, { headers: { ...corsHeaders, "Cache-Control": "no-store" } });
   } catch (error) {
     console.error(error);
