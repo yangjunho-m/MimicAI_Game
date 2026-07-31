@@ -233,6 +233,7 @@ export default function Home() {
   const [word, setWord] = useState(WORDS[0]);
   const [aiStatus, setAiStatus] = useState("");
   const [selected, setSelected] = useState("");
+  const [shuffleSeed, setShuffleSeed] = useState(() => Math.random().toString(36));
   const [liveVotes, setLiveVotes] = useState<Record<string, string>>({});
   const [copied, setCopied] = useState(false);
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
@@ -430,7 +431,8 @@ export default function Home() {
       const identity = getAiIdentity(index, wordRef.current);
       return { id: `ai-${index}`, author: identity.name, image: aiGeneratedImagesRef.current[index] || pseudoAiSketch(wordRef.current, index), isAI: true };
     });
-    const complete = shuffleDrawings([...humanDrawings, ...aiDrawings], wordRef.current);
+    const roundSeed = `${wordRef.current}-${Date.now()}-${Math.random()}`;
+    const complete = shuffleDrawings([...humanDrawings, ...aiDrawings], roundSeed);
     const voteEndsAt = Date.now() + 10000;
     setDrawDeadline(0);
     voteGateOpenRef.current = false;
@@ -667,7 +669,7 @@ export default function Home() {
     setChatInput("");
     sendChatRef.current?.(message);
   };
-  const leaveOnline = () => {
+  const leaveOnline = (destination: Screen = "home") => {
     if (isHostRef.current && isSupabaseConfigured && hostTokenRef.current) {
       void deleteRoomRecord(roomCode, hostTokenRef.current);
       hostTokenRef.current = "";
@@ -681,7 +683,7 @@ export default function Home() {
     setReadyPlayers({});
     setChatMessages([]); setChatInput("");
     window.history.replaceState({}, "", window.location.pathname);
-    setScreen("home");
+    setScreen(destination);
   };
   const toggleReady = () => {
     if (isHost) return;
@@ -735,10 +737,11 @@ export default function Home() {
       setDrawings(old => [...old, { id: "ai", author: "MIMIC BOT", image: pseudoAiSketch(word), isAI: true }]);
       setAiStatus("데모 AI 스케치 완성!");
     }
+    setShuffleSeed(`${word}-${Date.now()}-${Math.random()}`);
     window.setTimeout(() => setScreen("vote"), 550);
   }, [word]);
   useEffect(() => { if (screen === "ai" && !isOnline) generateAI(); }, [screen, generateAI, isOnline]);
-  const gallery = isOnline ? drawings : shuffleDrawings(drawings, word);
+  const gallery = isOnline ? drawings : shuffleDrawings(drawings, shuffleSeed);
   const picked = drawings.find(item => item.id === selected);
   const fooled = picked ? !picked.isAI : false;
   const guests = Object.values(onlineProfiles).filter(item => !item.host);
@@ -795,8 +798,9 @@ export default function Home() {
       <div className="hero-orbit" aria-hidden="true"><span>HUMAN?</span><span>AI?</span><i /></div>
     </section>}
     {screen === "rooms" && <section className="panel room-browser">
+      <button className="page-back" onClick={() => setScreen("home")} aria-label="이전 페이지로 돌아가기">←</button>
       <div className="room-browser-head">
-        <div><div className="eyebrow">PLAY WITH OTHERS</div><h2>함께 그릴<br /><em>사람을 찾으세요.</em></h2><p>방을 만들면 지금 접속 중인 다른 사람의 게시판에 나타납니다.</p></div>
+        <div><h2>함께 그릴<br /><em>사람을 찾으세요.</em></h2><p>방을 만들면 지금 접속 중인 다른 사람의 게시판에 나타납니다.</p></div>
         <div className="room-create-card">
           <label><span>방 이름</span><input maxLength={20} value={roomName} onChange={e => setRoomName(e.target.value)} placeholder={`${profile.name}의 방`} /></label>
           <div className="visibility-tabs"><button className={roomVisibility === "public" ? "active" : ""} onClick={() => setRoomVisibility("public")}>공개 방</button><button className={roomVisibility === "private" ? "active" : ""} onClick={() => setRoomVisibility("private")}>비공개 방</button></div>
@@ -815,8 +819,9 @@ export default function Home() {
       <div className="direct-join"><div><input value={joinCode} maxLength={6} placeholder="ROOM CODE" onChange={e => setJoinCode(e.target.value.toUpperCase())} onKeyDown={e => { if (e.key === "Enter") connectOnline(false, joinCode); }} /><button onClick={() => connectOnline(false, joinCode)} disabled={joinCode.trim().length < 4}>입장 →</button></div></div>
     </section>}
     {screen === "lobby" && <section className="panel lobby">
+      <button className="page-back lobby-back" onClick={() => leaveOnline("rooms")} aria-label="방 목록으로 돌아가기">←</button>
       <div className="lobby-title"><div><h2 className="room-name-heading">{currentRoomName || `${Object.values(onlineProfiles).find(item => item.host)?.name || profile.name}의 방`}</h2><div className="eyebrow">ASSEMBLE HUMANS</div></div><div className="room-card"><span>초대 코드</span><strong>{roomCode}</strong><button onClick={() => { navigator.clipboard?.writeText(`${location.origin}${location.pathname}?room=${roomCode}`); setCopied(true); }}>{copied ? "초대 링크 복사 완료 ✓" : "초대 링크 복사"}</button></div></div>
-      <div className="ai-count-control"><span>AI 참가자</span><div>{[1, 2, 3].map(count => <button key={count} className={aiCount === count ? "active" : ""} disabled={!isHost} onClick={() => chooseAiCount(count)}>{count}명</button>)}</div>{isHost ? <button className="lobby-start" disabled={Object.keys(onlineProfiles).length < 2 || !allGuestsReady} onClick={startOnlineGame}>{allGuestsReady ? "게임 시작 →" : "준비 대기 중"}</button> : <div className="guest-lobby-actions"><button className="leave-room" onClick={leaveOnline}>방 나가기</button><button className={`ready-button ${readyPlayers[selfId] ? "active" : ""}`} onClick={toggleReady}>{readyPlayers[selfId] ? "준비 완료 ✓" : "준비"}</button></div>}</div>
+      <div className="ai-count-control"><span>AI 참가자</span><div>{[1, 2, 3].map(count => <button key={count} className={aiCount === count ? "active" : ""} disabled={!isHost} onClick={() => chooseAiCount(count)}>{count}명</button>)}</div>{isHost ? <button className="lobby-start" disabled={Object.keys(onlineProfiles).length < 2 || !allGuestsReady} onClick={startOnlineGame}>{allGuestsReady ? "게임 시작 →" : "준비 대기 중"}</button> : <div className="guest-lobby-actions"><button className={`ready-button ${readyPlayers[selfId] ? "active" : ""}`} onClick={toggleReady}>{readyPlayers[selfId] ? "준비 완료 ✓" : "준비"}</button></div>}</div>
       <div className="players">{Object.values(onlineProfiles).sort((a, b) => Number(Boolean(b.host)) - Number(Boolean(a.host))).map(item => <div className="player-card" key={item.id}><span className={`mini-avatar ${item.shape}`} style={{ background: item.color }}>{item.face}</span><div><strong>{item.name}</strong><small>{item.host ? "방장" : "게스트"} · 실시간 접속</small></div><i className={!item.host && !readyPlayers[item.id] ? "not-ready" : ""}>{item.host ? "HOST" : readyPlayers[item.id] ? "READY" : "WAITING"}</i></div>)}{Object.keys(onlineProfiles).length < 2 && <button className="add-player" onClick={() => { navigator.clipboard?.writeText(`${location.origin}${location.pathname}?room=${roomCode}`); setCopied(true); }}>{copied ? "복사 완료 ✓" : "초대 +"}</button>}</div>
       <div className="room-chat">
         <div className="chat-head"><strong>ROOM CHAT</strong><span>{Object.keys(onlineProfiles).length}명 접속</span></div>
